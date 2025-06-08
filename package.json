@@ -1,0 +1,62 @@
+{
+  "name": "electron-capture-app",
+  "version": "1.0.0",
+  "description": "Cross-platform desktop application for screenshot and camera capture with interval sessions",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish=never",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [
+    "electron",
+    "screenshot",
+    "camera",
+    "capture",
+    "desktop"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.2.2",
+    "canvas": "^3.1.0",
+    "electron-store": "^8.1.0",
+    "mac-screen-capture-permissions": "^2.1.0",
+    "node-webcam": "^0.8.1",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.0",
+    "uuid": "^9.0.0"
+  },
+  "build": {
+    "appId": "com.yourcompany.electron-capture-app",
+    "productName": "Capture App",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.photography",
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

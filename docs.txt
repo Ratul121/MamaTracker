@@ -1,0 +1,418 @@
+# Electron Screenshot & Camera Capture App Documentation
+
+## Table of Contents
+1. [Overview](#overview)
+2. [Features](#features)
+3. [Architecture](#architecture)
+4. [Setup & Installation](#setup--installation)
+5. [User Workflow](#user-workflow)
+6. [Technical Specifications](#technical-specifications)
+7. [Database Schema](#database-schema)
+8. [File Structure](#file-structure)
+9. [Dependencies](#dependencies)
+10. [Configuration](#configuration)
+11. [API Reference](#api-reference)
+12. [Security Considerations](#security-considerations)
+
+## Overview
+
+The Electron Screenshot & Camera Capture App is a cross-platform desktop application built with Node.js and Electron that allows users to capture screenshots and take camera snapshots, saving them to a user-selected directory with comprehensive metadata tracking.
+
+## Features
+
+### Core Functionality
+- **Screenshot Capture**: Full screen, window-specific, and region-based screenshot capture
+- **Camera Integration**: Access webcam/external cameras for photo capture
+- **Directory Selection**: User-configurable save location with drive/folder picker
+- **Metadata Management**: SQLite database storing comprehensive file and capture metadata
+- **Cross-Platform Support**: Windows, macOS, and Linux compatibility
+
+### Advanced Features
+- Multiple monitor support for screenshots
+- Camera device selection and configuration
+- Thumbnail generation for quick preview
+- Batch operations and automated naming
+- Export metadata functionality
+- Search and filter captured files
+- Interval/time-lapse capture with session management
+- **System tray integration for complete background operation**
+- **Minimize to tray during active capture sessions**
+- **Silent background captures with no UI interruption**
+- Session pause/resume capabilities
+- **Background session monitoring and notifications**
+
+## Architecture
+
+### High-Level Architecture
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Renderer      │    │   Main Process  │    │   File System  │
+│   Process       │◄──►│                 │◄──►│   & Database    │
+│   (UI/Frontend) │    │   (Backend)     │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Process Communication
+- **IPC (Inter-Process Communication)**: Secure communication between renderer and main processes
+- **Event-Driven Architecture**: Asynchronous handling of capture events and file operations
+- **Database Abstraction Layer**: Centralized data access and management
+
+## Setup & Installation
+
+### Prerequisites
+- Node.js (v18 or higher)
+- npm or yarn package manager
+- Operating system with camera and screen access permissions
+
+### Development Setup
+1. Clone repository and install dependencies
+2. Configure database initialization scripts
+3. Set up build tools for native modules
+4. Configure code signing certificates (for distribution)
+
+### Production Build
+- Electron Builder configuration for packaging
+- Auto-updater integration
+- Platform-specific installers (MSI, DMG, AppImage)
+
+## User Workflow
+
+### Initial Setup
+1. **First Launch**: App requests permissions for camera and screen recording
+2. **Directory Selection**: User selects default save location via folder picker dialog
+3. **Camera Configuration**: Detection and selection of available camera devices
+4. **Preferences Setup**: Configure naming conventions, quality settings, and shortcuts
+
+### Daily Usage
+1. **Quick Capture**: Hotkey combinations for instant screenshot/camera capture
+2. **Interval Sessions**: Set up automated time-lapse or monitoring captures
+3. **Advanced Capture**: GUI interface with region selection and device options
+4. **Session Management**: Monitor, pause, or stop active interval captures
+5. **Review & Manage**: Browse captured files with metadata filtering
+6. **Export Options**: Bulk export or individual file operations
+
+## Technical Specifications
+
+### Screenshot Capabilities
+- **Full Screen**: Capture entire desktop (multi-monitor support)
+- **Active Window**: Capture currently focused application window
+- **Region Selection**: User-defined rectangular area capture
+- **Delayed Capture**: Timer-based capture with countdown
+- **Interval Capture**: Automated periodic captures at user-defined intervals
+
+### Camera Features
+- **Device Enumeration**: Automatic detection of connected cameras
+- **Resolution Options**: Support for various capture resolutions
+- **Format Support**: JPEG, PNG output formats
+- **Preview Mode**: Live camera feed before capture
+- **Interval Photography**: Time-lapse and periodic camera captures
+
+### File Management
+- **Directory Structure**: Organized by date with specific naming conventions
+- **Background Operation**: App runs minimized to system tray during capture sessions
+- **File Formats**: PNG for screenshots, JPEG for camera captures
+- **Compression**: Configurable quality levels
+
+#### File Organization Structure
+```
+Selected Drive/
+└── CaptureApp/
+    └── 2025-06-09/                    # DATE folder (YYYY-MM-DD)
+        ├── CAMERA-2025-06-09_14-30-15.jpg
+        ├── CAMERA-2025-06-09_14-30-45.jpg
+        ├── SCREEN-2025-06-09_14-31-20.png
+        ├── SCREEN-2025-06-09_14-31-50.png
+        └── thumbnails/                 # Auto-generated thumbnails
+            ├── CAMERA-2025-06-09_14-30-15_thumb.jpg
+            └── SCREEN-2025-06-09_14-31-20_thumb.png
+```
+
+#### Naming Convention
+- **Camera Images**: `CAMERA-YYYY-MM-DD_HH-MM-SS.jpg`
+- **Screenshots**: `SCREEN-YYYY-MM-DD_HH-MM-SS.png`
+- **Date Folders**: `YYYY-MM-DD` format
+- **Time Format**: 24-hour format with hyphens (HH-MM-SS)
+
+### Interval Capture System
+- **Flexible Timing**: User-configurable intervals from 5 seconds to 1 hour
+- **Session Management**: Named sessions with start/pause/resume/stop controls
+- **Capture Limits**: Optional maximum capture count per session
+- **Background Operation**: App minimizes to system tray and runs silently during sessions
+- **System Tray Controls**: Quick access to session controls without opening main window
+- **Progress Tracking**: Real-time session statistics and remaining captures
+- **Auto-Stop Conditions**: Time-based or count-based session termination
+- **Multiple Sessions**: Support for concurrent interval sessions (different types)
+- **Session Recovery**: Resume interrupted sessions after app restart
+- **Minimal Resource Usage**: Optimized for long-running background operations
+
+## Database Schema
+
+### Tables Structure
+
+#### `captures` Table
+- `id` (INTEGER PRIMARY KEY)
+- `filename` (TEXT NOT NULL) - e.g., "CAMERA-2025-06-09_14-30-15.jpg"
+- `filepath` (TEXT NOT NULL) - Full path including date folder
+- `date_folder` (TEXT NOT NULL) - Date folder name (YYYY-MM-DD)
+- `capture_type` (TEXT NOT NULL) - 'screenshot' or 'camera'
+- `capture_mode` (TEXT) - 'manual', 'delayed', 'interval'
+- `interval_session_id` (TEXT) - Groups captures from same interval session
+- `timestamp` (DATETIME NOT NULL)
+- `file_size` (INTEGER)
+- `width` (INTEGER)
+- `height` (INTEGER)
+- `device_info` (TEXT) - JSON string with device details
+- `thumbnail_path` (TEXT) - Path to thumbnail file
+- `tags` (TEXT) - Comma-separated tags
+- `notes` (TEXT)
+
+#### `interval_sessions` Table
+- `session_id` (TEXT PRIMARY KEY)
+- `session_name` (TEXT)
+- `capture_type` (TEXT) - 'screenshot' or 'camera'
+- `interval_seconds` (INTEGER)
+- `max_captures` (INTEGER) - Optional limit, NULL for unlimited
+- `start_time` (DATETIME)
+- `end_time` (DATETIME) - NULL for active sessions
+- `status` (TEXT) - 'active', 'paused', 'completed', 'cancelled'
+- `capture_count` (INTEGER DEFAULT 0)
+- `device_id` (TEXT) - For camera sessions
+- `capture_settings` (TEXT) - JSON string with specific settings
+
+#### `settings` Table
+- `key` (TEXT PRIMARY KEY)
+- `value` (TEXT)
+- `updated_at` (DATETIME)
+
+#### `devices` Table
+- `device_id` (TEXT PRIMARY KEY)
+- `device_name` (TEXT)
+- `device_type` (TEXT) - 'camera' or 'display'
+- `capabilities` (TEXT) - JSON string
+- `last_used` (DATETIME)
+
+### Database Operations
+- **Create**: Insert new capture records with metadata
+- **Read**: Query captures with filtering and sorting
+- **Update**: Modify tags, notes, and file information
+- **Delete**: Remove records and associated files
+
+## File Structure
+
+```
+electron-capture-app/
+├── src/
+│   ├── main/                 # Main process files
+│   │   ├── index.js         # Application entry point
+│   │   ├── capture/         # Screenshot/camera modules
+│   │   ├── database/        # Database management
+│   │   └── file-manager/    # File operations
+│   ├── renderer/            # Renderer process files
+│   │   ├── index.html       # Main UI
+│   │   ├── styles/          # CSS stylesheets
+│   │   └── scripts/         # Frontend JavaScript
+│   └── shared/              # Common utilities
+├── assets/                  # Static resources
+├── build/                   # Build configuration
+├── dist/                    # Distribution files
+└── docs/                    # Documentation
+```
+
+## Dependencies
+
+### Core Dependencies
+- **Electron**: Desktop app framework
+- **sqlite3**: Database management
+- **sharp**: Image processing and thumbnail generation
+- **screenshot-desktop**: Cross-platform screenshot capture
+- **node-webcam**: Camera access and control
+
+### UI Dependencies
+- **Electron React/Vue** (optional): Frontend framework
+- **Material-UI/Antd**: Component library
+- **Chart.js**: Analytics and usage charts
+
+### Build Dependencies
+- **Electron Builder**: Application packaging
+- **webpack**: Module bundling
+- **babel**: JavaScript transpilation
+
+## Configuration
+
+### Application Settings
+```json
+{
+  "defaultSaveLocation": "/Users/username/Documents/CaptureApp",
+  "fileNaming": {
+    "cameraPrefix": "CAMERA",
+    "screenshotPrefix": "SCREEN",
+    "dateFormat": "YYYY-MM-DD",
+    "timeFormat": "HH-MM-SS",
+    "createDateFolders": true
+  },
+  "screenshotFormat": "png",
+  "cameraFormat": "jpg",
+  "compressionQuality": 95,
+  "autoThumbnails": true,
+  "backgroundOperation": {
+    "minimizeToTray": true,
+    "runSilently": true,
+    "showNotifications": true,
+    "notificationLevel": "minimal"
+  },
+  "intervalSettings": {
+    "defaultInterval": 30,
+    "minInterval": 5,
+    "maxInterval": 3600,
+    "defaultMaxCaptures": 100,
+    "autoStartNaming": true
+  },
+  "shortcutKeys": {
+    "fullScreen": "Ctrl+Shift+F",
+    "activeWindow": "Ctrl+Shift+W",
+    "camera": "Ctrl+Shift+C",
+    "startInterval": "Ctrl+Shift+I",
+    "stopInterval": "Ctrl+Shift+S",
+    "showFromTray": "Ctrl+Shift+T"
+  }
+}
+```
+
+### Database Configuration
+- **Connection**: SQLite file-based database
+- **Location**: User data directory
+- **Backup**: Automatic backup scheduling
+- **Migration**: Version-based schema updates
+
+## API Reference
+
+### IPC Channels
+
+#### Screenshot Operations
+- `capture-screenshot`: Initiate screenshot capture
+- `capture-region`: Start region selection mode
+- `screenshot-complete`: Handle capture completion
+
+#### Camera Operations
+- `enumerate-cameras`: Get available camera devices
+- `capture-photo`: Take camera snapshot
+- `camera-preview`: Start/stop camera preview
+
+#### Interval Operations
+- `start-interval-capture`: Begin interval capture session
+- `pause-interval-capture`: Pause active interval session
+- `resume-interval-capture`: Resume paused interval session
+- `stop-interval-capture`: End interval capture session
+- `get-active-sessions`: Retrieve currently running interval sessions
+- `update-interval-settings`: Modify interval parameters during session
+
+#### System Tray Operations
+- `minimize-to-tray`: Hide main window and run in background
+- `restore-from-tray`: Show main window from system tray
+- `tray-quick-capture`: Instant capture from tray menu
+- `tray-session-control`: Pause/resume/stop interval sessions
+- `show-session-progress`: Display current session statistics
+- `tray-preferences`: Quick access to common settings
+
+#### File Management
+- `select-directory`: Open folder selection dialog
+- `get-captures`: Retrieve capture history
+- `delete-capture`: Remove capture and file
+- `export-metadata`: Export database records
+
+### Event Handling
+- **Capture Events**: Success/failure notifications
+- **File Events**: Save confirmation and error handling
+- **UI Events**: Progress updates and status changes
+
+## Security Considerations
+
+### Permissions
+- **Camera Access**: Request and handle camera permissions
+- **Screen Recording**: macOS screen recording permissions
+- **File System**: Write access to selected directories
+
+### Data Protection
+- **Local Storage**: All data stored locally, no cloud transmission
+- **Encryption**: Optional database encryption for sensitive environments
+- **Privacy**: No telemetry or external data transmission
+
+### Security Best Practices
+- **Input Validation**: Sanitize file paths and user inputs
+- **Process Isolation**: Separate main and renderer processes
+- **Update Mechanism**: Secure auto-update with signature verification
+
+---
+
+## Usage Examples
+
+### Basic Screenshot Workflow
+1. User presses `Ctrl+Shift+F` (configurable hotkey)
+2. App captures full screen and saves to date folder: `/CaptureApp/2025-06-09/SCREEN-2025-06-09_14-32-10.png`
+3. Database record created with timestamp and metadata
+4. Optional notification shows capture success
+
+### Camera Capture Workflow
+1. User opens camera interface or uses hotkey `Ctrl+Shift+C`
+2. App displays available cameras in dropdown
+3. User selects camera and clicks capture
+4. Photo saved as: `/CaptureApp/2025-06-09/CAMERA-2025-06-09_14-35-22.jpg`
+5. Thumbnail generated automatically: `/CaptureApp/2025-06-09/thumbnails/CAMERA-2025-06-09_14-35-22_thumb.jpg`
+
+### Background Interval Session Example
+1. User starts 30-second interval camera session
+2. App immediately minimizes to system tray
+3. Every 30 seconds, silently captures and saves:
+   - `/CaptureApp/2025-06-09/CAMERA-2025-06-09_14-40-00.jpg`
+   - `/CaptureApp/2025-06-09/CAMERA-2025-06-09_14-40-30.jpg`
+   - `/CaptureApp/2025-06-09/CAMERA-2025-06-09_14-41-00.jpg`
+4. User controls session via system tray without interrupting other work
+5. Session data grouped in database with same `interval_session_id`
+
+### File Structure Example After One Day
+```
+/CaptureApp/
+└── 2025-06-09/
+    ├── CAMERA-2025-06-09_09-15-30.jpg    # Manual camera capture
+    ├── CAMERA-2025-06-09_14-30-00.jpg    # Interval session start
+    ├── CAMERA-2025-06-09_14-30-30.jpg    # Interval +30 seconds
+    ├── CAMERA-2025-06-09_14-31-00.jpg    # Interval +60 seconds
+    ├── SCREEN-2025-06-09_16-45-15.png    # Manual screenshot
+    └── thumbnails/
+        ├── CAMERA-2025-06-09_09-15-30_thumb.jpg
+        ├── CAMERA-2025-06-09_14-30-00_thumb.jpg
+        └── SCREEN-2025-06-09_16-45-15_thumb.png
+```
+
+### Interval Capture Workflow
+1. User opens interval capture interface or uses hotkey `Ctrl+Shift+I`
+2. Configure session settings:
+   - Session name (optional)
+   - Capture type (screenshot or camera)
+   - Interval time (5 seconds to 1 hour)
+   - Maximum captures (optional limit)
+   - Specific device (for camera sessions)
+3. App creates new session and starts timer
+4. **App automatically minimizes to system tray for background operation**
+5. Captures occur silently at specified intervals with organized file structure
+6. **System tray icon shows session status and progress**
+7. User can access controls via system tray context menu
+8. Files saved as: `CAMERA-YYYY-MM-DD_HH-MM-SS.jpg` in date folders
+9. Session completion notification with summary and file locations
+
+#### System Tray Features During Background Operation
+- **Status Indicator**: Tray icon changes to show active capture sessions
+- **Quick Controls**: Right-click menu for pause/resume/stop without opening app
+- **Progress Display**: Hover tooltip shows current session progress
+- **Silent Notifications**: Optional minimal notifications for capture events
+- **Resource Monitoring**: Minimal CPU/memory usage during background captures
+
+### Metadata Search Example
+Users can search captures by:
+- Date range (last week, month, custom range)
+- Capture type (screenshot vs camera)
+- File size or resolution
+- Device used for capture
+- Custom tags or notes
+
+This documentation provides a comprehensive foundation for developing and maintaining the Electron screenshot and camera capture application.
