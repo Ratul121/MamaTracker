@@ -12,7 +12,8 @@
     "build:linux": "electron-builder --linux",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --publish=never",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-rebuild -f"
   },
   "keywords": [
     "electron",
@@ -25,11 +26,13 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9"
   },
   "dependencies": {
     "better-sqlite3": "^9.2.2",
     "canvas": "^3.1.0",
+    "date-fns": "^4.1.0",
     "electron-store": "^8.1.0",
     "mac-screen-capture-permissions": "^2.1.0",
     "node-webcam": "^0.8.1",
@@ -48,9 +51,29 @@
       "assets/**/*",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "node_modules/better-sqlite3",
+        "to": "node_modules/better-sqlite3"
+      },
+      {
+        "from": "node_modules/sharp",
+        "to": "node_modules/sharp"
+      },
+      {
+        "from": "node_modules/canvas",
+        "to": "node_modules/canvas"
+      }
+    ],
+    "extraMetadata": {
+      "main": "src/main/index.js"
+    },
+    "asar": false,
     "mac": {
       "category": "public.app-category.photography",
-      "target": "dmg"
+      "target": "dmg",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
     },
     "win": {
       "target": "nsis"

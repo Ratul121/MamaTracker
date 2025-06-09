@@ -173,6 +173,38 @@
                         </div>
                     </div>
                     
+                    <div class="settings-section">
+                        <h4>Camera Settings</h4>
+                        <p class="settings-description">Configure camera settings for all capture types.</p>
+                        
+                        <div class="form-group">
+                            <label for="defaultCamera">Default Camera</label>
+                            <select id="defaultCamera">
+                                <!-- Cameras will be populated dynamically -->
+                            </select>
+                            <small>This camera will be used for all camera captures</small>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h4>Permissions</h4>
+                        <p class="settings-description">Manage application permissions.</p>
+                        
+                        <div class="form-group">
+                            <button type="button" id="resetPermissionsBtn" class="btn btn-secondary">
+                                Reset Permission Status
+                            </button>
+                            <small>Use this if you've granted permissions but the app still asks for them</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <button type="button" id="openPrivacySettingsBtn" class="btn btn-secondary">
+                                Open Privacy Settings
+                            </button>
+                            <small>Open macOS System Settings to grant needed permissions</small>
+                        </div>
+                    </div>
+                    
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" id="cancelSettings">Cancel</button>
                         <button type="submit" class="btn btn-primary">Save Settings</button>

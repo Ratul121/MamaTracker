@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   enumerateCameras: () => ipcRenderer.invoke('enumerate-cameras'),
   capturePhoto: (deviceId) => ipcRenderer.invoke('capture-photo', deviceId),
   
+  // Diagnostic functions
+  runDiagnostics: () => ipcRenderer.invoke('run-diagnostics'),
+  
   // Composite capture
   captureComposite: () => ipcRenderer.invoke('capture-composite'),
 
@@ -33,6 +36,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Settings
   getSetting: (key) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
+  
+  // Permissions
+  resetPermissions: () => ipcRenderer.invoke('reset-permissions'),
+  openPrivacySettings: () => ipcRenderer.invoke('open-privacy-settings'),
 
   // Event listeners
   onCaptureComplete: (callback) => ipcRenderer.on('capture-complete', callback),

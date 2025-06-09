@@ -186,6 +186,10 @@ class CaptureApp {
         }
       }
     });
+    
+    // Permission buttons
+    document.getElementById('resetPermissionsBtn').addEventListener('click', () => this.resetPermissions());
+    document.getElementById('openPrivacySettingsBtn').addEventListener('click', () => this.openPrivacySettings());
   }
 
   setupModalControls() {
@@ -317,17 +321,51 @@ class CaptureApp {
   async loadCameras() {
     try {
       this.cameras = await window.electronAPI.enumerateCameras();
-      const cameraSelect = document.getElementById('cameraDevice');
-      cameraSelect.innerHTML = '';
+      console.log('Loaded cameras:', this.cameras);
       
-      this.cameras.forEach(camera => {
-        const option = document.createElement('option');
-        option.value = camera.device_id;
-        option.textContent = camera.device_name;
-        cameraSelect.appendChild(option);
-      });
+      // Populate camera selects in both the interval modal and settings
+      this.populateCameraSelect('cameraDevice');
+      this.populateCameraSelect('defaultCamera');
+      
+      // If no cameras found, show a diagnostic button
+      if (!this.cameras || this.cameras.length === 0 || 
+          (this.cameras.length === 1 && this.cameras[0].device_id === 'default')) {
+        console.warn('No cameras found or only default camera available');
+        this.showCameraDiagnosticsButton();
+      }
     } catch (error) {
       console.error('Failed to load cameras:', error);
+      this.showCameraDiagnosticsButton();
+    }
+  }
+
+  populateCameraSelect(selectId) {
+    const cameraSelect = document.getElementById(selectId);
+    if (!cameraSelect) return;
+    
+    cameraSelect.innerHTML = '';
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = 'default';
+    defaultOption.textContent = 'System Default Camera';
+    cameraSelect.appendChild(defaultOption);
+    
+    // Add available cameras
+    this.cameras.forEach(camera => {
+      const option = document.createElement('option');
+      option.value = camera.device_id;
+      option.textContent = camera.device_name;
+      cameraSelect.appendChild(option);
+    });
+    
+    // If in settings, try to select the current default camera
+    if (selectId === 'defaultCamera') {
+      window.electronAPI.getSetting('defaultCameraId').then(cameraId => {
+        if (cameraId) {
+          cameraSelect.value = cameraId;
+        }
+      }).catch(console.error);
     }
   }
 
@@ -549,6 +587,10 @@ class CaptureApp {
       // Save to electron store
       await window.electronAPI.setSetting('defaultIntervalSettings', settings);
       
+      // Save default camera setting
+      const defaultCameraId = document.getElementById('defaultCamera').value;
+      await window.electronAPI.setSetting('defaultCameraId', defaultCameraId);
+      
       // Update local settings
       this.defaultIntervalSettings = settings;
       
@@ -570,6 +612,52 @@ class CaptureApp {
     } catch (error) {
       console.error('Failed to save settings:', error);
       this.showToast('Failed to save settings: ' + error.message, 'error');
+    }
+  }
+
+  // Reset permission status
+  async resetPermissions() {
+    try {
+      await window.electronAPI.resetPermissions();
+    } catch (error) {
+      console.error('Failed to reset permissions:', error);
+      this.showToast('Failed to reset permissions: ' + error.message, 'error');
+    }
+  }
+  
+  // Open privacy settings
+  async openPrivacySettings() {
+    try {
+      await window.electronAPI.openPrivacySettings();
+    } catch (error) {
+      console.error('Failed to open privacy settings:', error);
+      this.showToast('Failed to open privacy settings: ' + error.message, 'error');
+    }
+  }
+
+  showCameraDiagnosticsButton() {
+    // Add a button to the camera device dropdown area to help diagnose issues
+    const cameraDeviceContainer = document.getElementById('cameraDevice').parentElement;
+    
+    // Create diagnostic button if it doesn't exist
+    if (!document.getElementById('camera-diagnostics-btn')) {
+      const diagnosticBtn = document.createElement('button');
+      diagnosticBtn.id = 'camera-diagnostics-btn';
+      diagnosticBtn.className = 'btn btn-secondary mt-2';
+      diagnosticBtn.textContent = 'Camera Issues? Run Diagnostics';
+      diagnosticBtn.addEventListener('click', () => this.runDiagnostics());
+      
+      cameraDeviceContainer.appendChild(diagnosticBtn);
+    }
+  }
+  
+  async runDiagnostics() {
+    try {
+      console.log('Running diagnostics...');
+      await window.electronAPI.runDiagnostics();
+    } catch (error) {
+      console.error('Error running diagnostics:', error);
+      alert('Error running diagnostics: ' + error.message);
     }
   }
 }
