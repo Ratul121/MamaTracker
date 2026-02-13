@@ -267,6 +267,11 @@ class DatabaseManager {
     return await this.allQuery(sql, ['active', 'paused']);
   }
 
+  async getAllSessions() {
+    const sql = 'SELECT * FROM interval_sessions ORDER BY start_time DESC';
+    return await this.allQuery(sql, []);
+  }
+
   async incrementSessionCaptures(sessionId) {
     const sql = 'UPDATE interval_sessions SET capture_count = capture_count + 1 WHERE session_id = ?';
     return await this.runQuery(sql, [sessionId]);

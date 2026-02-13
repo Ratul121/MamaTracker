@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Permissions</title>
+    <link rel="stylesheet" href="styles/permissions.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+
+<body>
+    <div class="permission-container">
+        <header>
+            <h1><i class="fas fa-shield-alt"></i> Permissions Required</h1>
+            <p>To capture screenshots and video, this app needs access to your system.</p>
+        </header>
+
+        <div class="permission-list">
+            <!-- Screen Recording -->
+            <div class="permission-item" id="screen-permission">
+                <div class="permission-icon">
+                    <i class="fas fa-desktop"></i>
+                </div>
+                <div class="permission-info">
+                    <h3>Screen Recording</h3>
+                    <p>Required to take screenshots.</p>
+                </div>
+                <div class="permission-action">
+                    <span class="status-badge unknown" id="screen-status">Checking...</span>
+                    <button class="btn btn-primary" id="btn-request-screen">Open Settings</button>
+                    <button class="btn btn-secondary hidden" id="btn-check-screen">Check Again</button>
+                </div>
+            </div>
+
+            <!-- Camera -->
+            <div class="permission-item" id="camera-permission">
+                <div class="permission-icon">
+                    <i class="fas fa-camera"></i>
+                </div>
+                <div class="permission-info">
+                    <h3>Camera</h3>
+                    <p>Required for photo and video capture.</p>
+                </div>
+                <div class="permission-action">
+                    <span class="status-badge unknown" id="camera-status">Checking...</span>
+                    <button class="btn btn-primary" id="btn-request-camera">Request Access</button>
+                </div>
+            </div>
+
+            <!-- Microphone -->
+            <div class="permission-item" id="mic-permission">
+                <div class="permission-icon">
+                    <i class="fas fa-microphone"></i>
+                </div>
+                <div class="permission-info">
+                    <h3>Microphone</h3>
+                    <p>Required to record audio with video.</p>
+                </div>
+                <div class="permission-action">
+                    <span class="status-badge unknown" id="mic-status">Checking...</span>
+                    <button class="btn btn-primary" id="btn-request-mic">Request Access</button>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <div class="footer-actions">
+                <button id="btn-relaunch" class="btn btn-secondary hidden">Relaunch App</button>
+                <button id="btn-continue" class="btn btn-success" disabled>Continue to App <i
+                        class="fas fa-arrow-right"></i></button>
+            </div>
+        </footer>
+    </div>
+    <script src="scripts/permissions.js"></script>
+</body>
+
+</html>

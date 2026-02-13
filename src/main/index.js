@@ -8,6 +8,7 @@ const Store = require('electron-store');
 const { promisify } = require('util');
 const { exec } = require('child_process');
 const fs = require('fs/promises');
+const macPermissions = require('mac-screen-capture-permissions');
 
 class ElectronCaptureApp {
   constructor() {
@@ -24,19 +25,24 @@ class ElectronCaptureApp {
   async initialize() {
     try {
       await app.whenReady();
+      // We still check permissions for logging/initialization but the window flow handles the UI
       await this.checkMacOSPermissions();
-      
+
       try {
         await this.dbManager.initialize();
       } catch (dbError) {
         console.error('Database initialization error:', dbError);
         // Continue with application startup even if database fails
       }
-      
+
       // Initialize managers that depend on database
       this.captureManager = new CaptureManager(this.dbManager);
       this.intervalManager = new IntervalManager(this.dbManager);
-      
+
+      // Initialize the managers
+      await this.captureManager.initialize();
+      await this.intervalManager.initialize();
+
       this.createWindow();
       this.createTray();
       this.setupIPC();
@@ -62,62 +68,18 @@ class ElectronCaptureApp {
   async checkMacOSPermissions() {
     if (process.platform === 'darwin') {
       console.log('Checking macOS permissions...');
-      
+
       // Check screen recording permission
       const screenAccess = systemPreferences.getMediaAccessStatus('screen');
       console.log('Screen recording access:', screenAccess);
-      
+
       // Check camera permission
       const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
       console.log('Camera access:', cameraAccess);
-      
+
       // Check microphone permission for system audio
       const microphoneAccess = systemPreferences.getMediaAccessStatus('microphone');
       console.log('Microphone access:', microphoneAccess);
-      
-      // If camera access is not granted, request it
-      if (cameraAccess !== 'granted') {
-        console.log('Requesting camera permission...');
-        try {
-          const granted = await systemPreferences.askForMediaAccess('camera');
-          console.log('Camera permission granted:', granted);
-          
-          if (!granted) {
-            dialog.showMessageBox(null, {
-              type: 'warning',
-              title: 'Camera Permission Required',
-              message: 'Camera access was denied.',
-              detail: 'Please enable camera access in System Settings → Privacy & Security → Camera',
-              buttons: ['OK']
-            });
-          }
-        } catch (error) {
-          console.error('Error requesting camera permission:', error);
-        }
-      }
-      
-      // Request microphone access for system audio if not granted
-      if (microphoneAccess !== 'granted') {
-        console.log('Requesting microphone permission...');
-        try {
-          const granted = await systemPreferences.askForMediaAccess('microphone');
-          console.log('Microphone permission granted:', granted);
-          
-          if (!granted) {
-            dialog.showMessageBox(null, {
-              type: 'warning',
-              title: 'Microphone Permission Required',
-              message: 'Microphone access was denied.',
-              detail: 'Please enable microphone access in System Settings → Privacy & Security → Microphone',
-              buttons: ['OK']
-            });
-          }
-        } catch (error) {
-          console.error('Error requesting microphone permission:', error);
-        }
-      }
-      
-      // For screen recording, we'll use the mac-screen-capture-permissions module in the CaptureManager
     }
   }
 
@@ -134,23 +96,32 @@ class ElectronCaptureApp {
       show: false
     });
 
-    this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // innovative permission check flow
+    this.checkPermissionsStatus().then(allGranted => {
+      // If permissions are granted, load the main app
+      // Since checkPermissionsStatus handles platform-specific logic (assuming TRUE for screen on Windows),
+      // we can rely on its result for all platforms.
+      if (allGranted) {
+        this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+        // Permissions are good, resume any active sessions
+        this.intervalManager.resumeActiveSessions();
+      } else {
+        // Otherwise load the permissions onboarding page
+        this.mainWindow.loadFile(path.join(__dirname, '../renderer/permissions.html'));
+      }
+    });
 
     this.mainWindow.once('ready-to-show', () => {
       this.mainWindow.show();
     });
 
     // Reset permissions on macOS when window is focused
-    // This helps macOS re-check if permissions have been granted
     if (process.platform === 'darwin') {
       this.mainWindow.on('focus', () => {
-        console.log('Window focused, checking for updated permissions');
-        // Instead of using resetMediaAccessStatus, just log current status
-        // which will refresh the internal cache
         const screenAccess = systemPreferences.getMediaAccessStatus('screen');
         const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
         const microphoneAccess = systemPreferences.getMediaAccessStatus('microphone');
-        console.log('Current permissions - Screen:', screenAccess, 'Camera:', cameraAccess, 'Microphone:', microphoneAccess);
+        // console.log('Current permissions - Screen:', screenAccess, 'Camera:', cameraAccess, 'Microphone:', microphoneAccess);
       });
     }
 
@@ -172,24 +143,37 @@ class ElectronCaptureApp {
     });
   }
 
-  createTray() {
-    // Create a simple tray icon using a built-in icon or skip if file doesn't exist
-    const trayIconPath = path.join(__dirname, '../../assets/tray-icon.png');
-    try {
-      this.tray = new Tray(trayIconPath);
-    } catch (error) {
-      console.log('Tray icon not found, creating tray without icon');
-      // Create a simple 16x16 transparent PNG as fallback
-      this.tray = new Tray(this.createFallbackIcon());
+  async checkPermissionsStatus() {
+    // Check permissions on both macOS and Windows
+    const camera = systemPreferences.getMediaAccessStatus('camera');
+    const mic = systemPreferences.getMediaAccessStatus('microphone');
+
+    let screen = true;
+    if (process.platform === 'darwin') {
+      screen = macPermissions.hasScreenCapturePermission();
     }
-    
-    const contextMenu = Menu.buildFromTemplate([
+    // On Windows, screen capture permission is not generally restricted by the system in the same way,
+    // so we assume true unless we want to implement a specific check (e.g. attempting a capture).
+
+    // Log for debugging
+    console.log(`Permission Check (${process.platform}): Screen=${screen}, Camera=${camera}, Mic=${mic}`);
+
+    return screen && camera === 'granted' && mic === 'granted';
+  }
+
+  buildTrayContextMenu() {
+    return Menu.buildFromTemplate([
       {
         label: 'Show App',
         click: () => {
-          this.mainWindow.show();
-          if (process.platform === 'darwin') {
-            app.dock.show();
+          if (this.mainWindow === null || this.mainWindow.isDestroyed()) {
+            this.createWindow();
+          } else {
+            this.mainWindow.show();
+            this.mainWindow.focus();
+            if (process.platform === 'darwin') {
+              app.dock.show();
+            }
           }
         }
       },
@@ -259,7 +243,6 @@ class ElectronCaptureApp {
           {
             label: 'Run Diagnostics',
             click: async () => {
-              // Call the run-diagnostics IPC handler directly
               await this.runDiagnostics();
             }
           }
@@ -274,43 +257,80 @@ class ElectronCaptureApp {
         }
       }
     ]);
+  }
 
-    this.tray.setContextMenu(contextMenu);
+  createTray() {
+    if (this.tray) {
+      this.tray.destroy();
+      this.tray = null;
+    }
+
+    const trayIconPath = path.join(__dirname, '../../assets/tray-icon.png');
+    try {
+      this.tray = new Tray(trayIconPath);
+    } catch (error) {
+      console.log('Tray icon not found, creating tray without icon');
+      this.tray = new Tray(this.createFallbackIcon());
+    }
+
+    this.tray.setContextMenu(this.buildTrayContextMenu());
     this.tray.setToolTip('Capture App');
 
     this.tray.on('double-click', () => {
-      this.mainWindow.show();
-      if (process.platform === 'darwin') {
-        app.dock.show();
+      if (this.mainWindow === null || this.mainWindow.isDestroyed()) {
+        this.createWindow();
+      } else {
+        this.mainWindow.show();
+        this.mainWindow.focus();
+        if (process.platform === 'darwin') {
+          app.dock.show();
+        }
       }
     });
   }
 
   buildSessionsMenu() {
     const sessions = this.intervalManager.getActiveSessions();
+    console.log('Building sessions menu, active sessions:', sessions.length, sessions);
+
     if (sessions.length === 0) {
       return [{ label: 'No active sessions', enabled: false }];
     }
 
+    const hasActiveSession = this.intervalManager.hasActiveSession();
+
     return sessions.map(session => ({
-      label: `${session.session_name || session.session_id}`,
+      label: `${session.session_name || session.session_id} (${session.status})`,
       submenu: [
         {
           label: session.status === 'active' ? 'Pause' : 'Resume',
-          click: () => {
-            if (session.status === 'active') {
-              this.intervalManager.pauseSession(session.session_id);
-            } else {
-              this.intervalManager.resumeSession(session.session_id);
+          enabled: session.status === 'active' || !hasActiveSession,
+          click: async () => {
+            try {
+              if (session.status === 'active') {
+                await this.intervalManager.pauseSession(session.session_id);
+              } else {
+                await this.intervalManager.resumeSession(session.session_id);
+              }
+              this.updateTrayMenu();
+            } catch (error) {
+              console.error('Error toggling session:', error);
+              const { dialog } = require('electron');
+              dialog.showErrorBox('Session Error', error.message);
             }
-            this.updateTrayMenu();
           }
         },
         {
           label: 'Stop',
-          click: () => {
-            this.intervalManager.stopSession(session.session_id);
-            this.updateTrayMenu();
+          click: async () => {
+            try {
+              await this.intervalManager.stopSession(session.session_id);
+              this.updateTrayMenu();
+            } catch (error) {
+              console.error('Error stopping session:', error);
+              const { dialog } = require('electron');
+              dialog.showErrorBox('Session Error', error.message);
+            }
           }
         }
       ]
@@ -318,9 +338,11 @@ class ElectronCaptureApp {
   }
 
   updateTrayMenu() {
-    // Simply recreate the tray menu with updated sessions
+    console.log('Updating tray menu...');
     if (this.tray) {
-      this.createTray();
+      const sessions = this.intervalManager.getActiveSessions();
+      console.log('Active sessions for tray update:', sessions.length);
+      this.tray.setContextMenu(this.buildTrayContextMenu());
     }
   }
 
@@ -342,72 +364,10 @@ class ElectronCaptureApp {
     ipcMain.handle('capture-photo', async (event, deviceId) => {
       return await this.captureManager.takeCameraPhoto({ deviceId });
     });
-    
+
     // Diagnostics
     ipcMain.handle('run-diagnostics', async () => {
-      try {
-        // Check various components and return diagnostic info
-        const diagnostics = {
-          platform: process.platform,
-          isPackaged: app.isPackaged,
-          appPath: app.getAppPath(),
-          resourcePath: process.resourcesPath,
-          execPath: process.execPath,
-          versions: process.versions,
-          env: {
-            PATH: process.env.PATH,
-            HOME: process.env.HOME
-          }
-        };
-        
-        // Check if imagesnap exists
-        if (process.platform === 'darwin') {
-          try {
-            const { stdout } = await promisify(exec)('which imagesnap');
-            diagnostics.imagesnap = {
-              found: true,
-              path: stdout.trim()
-            };
-            
-            // Try to list cameras with imagesnap
-            try {
-              const { stdout: cameraOutput } = await promisify(exec)(`${stdout.trim()} -l`);
-              diagnostics.imagesnapOutput = cameraOutput;
-            } catch (imagesnapError) {
-              diagnostics.imagesnapError = imagesnapError.toString();
-            }
-          } catch (whichError) {
-            diagnostics.imagesnap = {
-              found: false,
-              error: whichError.toString()
-            };
-          }
-          
-          // Check permissions
-          diagnostics.permissions = {
-            screen: systemPreferences.getMediaAccessStatus('screen'),
-            camera: systemPreferences.getMediaAccessStatus('camera'),
-            microphone: systemPreferences.getMediaAccessStatus('microphone')
-          };
-        }
-        
-        console.log('Diagnostics:', diagnostics);
-        
-        // Show diagnostic info in a dialog
-        dialog.showMessageBox({
-          type: 'info',
-          title: 'Diagnostics Information',
-          message: 'App Diagnostics',
-          detail: JSON.stringify(diagnostics, null, 2),
-          buttons: ['OK'],
-          defaultId: 0
-        });
-        
-        return diagnostics;
-      } catch (error) {
-        console.error('Error running diagnostics:', error);
-        return { error: error.toString() };
-      }
+      return await this.runDiagnostics();
     });
 
     // Composite capture
@@ -417,19 +377,36 @@ class ElectronCaptureApp {
 
     // Interval operations
     ipcMain.handle('start-interval-capture', async (event, config) => {
-      const sessionId = await this.intervalManager.startSession(config);
-      this.updateTrayMenu();
-      return sessionId;
+      try {
+        const sessionId = await this.intervalManager.startSession(config);
+        this.updateTrayMenu();
+        return { success: true, sessionId };
+      } catch (error) {
+        console.error('Failed to start interval capture:', error);
+        return { success: false, error: error.message };
+      }
     });
 
     ipcMain.handle('pause-interval-capture', async (event, sessionId) => {
-      await this.intervalManager.pauseSession(sessionId);
-      this.updateTrayMenu();
+      try {
+        await this.intervalManager.pauseSession(sessionId);
+        this.updateTrayMenu();
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to pause interval capture:', error);
+        return { success: false, error: error.message };
+      }
     });
 
     ipcMain.handle('resume-interval-capture', async (event, sessionId) => {
-      await this.intervalManager.resumeSession(sessionId);
-      this.updateTrayMenu();
+      try {
+        await this.intervalManager.resumeSession(sessionId);
+        this.updateTrayMenu();
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to resume interval capture:', error);
+        return { success: false, error: error.message };
+      }
     });
 
     ipcMain.handle('stop-interval-capture', async (event, sessionId) => {
@@ -463,9 +440,14 @@ class ElectronCaptureApp {
     });
 
     ipcMain.handle('restore-from-tray', () => {
-      this.mainWindow.show();
-      if (process.platform === 'darwin') {
-        app.dock.show();
+      if (this.mainWindow === null || this.mainWindow.isDestroyed()) {
+        this.createWindow();
+      } else {
+        this.mainWindow.show();
+        this.mainWindow.focus();
+        if (process.platform === 'darwin') {
+          app.dock.show();
+        }
       }
     });
 
@@ -476,47 +458,80 @@ class ElectronCaptureApp {
 
     ipcMain.handle('set-setting', (event, key, value) => {
       this.store.set(key, value);
-      
+
       // If this is a camera setting, update the capture manager
       if (key === 'defaultCameraId') {
         this.captureManager.setDefaultCamera(value);
       }
     });
-    
-    // Permissions
-    ipcMain.handle('reset-permissions', async () => {
+
+    // Permissions Handlers
+    ipcMain.handle('open-privacy-settings', (event, type) => {
+      const { shell } = require('electron');
       if (process.platform === 'darwin') {
-        console.log('Checking current permission status to refresh cache');
-        // Instead of using resetMediaAccessStatus, check each permission type
-        // which forces Electron to refresh its internal cache
-        const screenAccess = systemPreferences.getMediaAccessStatus('screen');
-        const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
-        const microphoneAccess = systemPreferences.getMediaAccessStatus('microphone');
-        console.log('Current permissions - Screen:', screenAccess, 'Camera:', cameraAccess, 'Microphone:', microphoneAccess);
-        
-        // Show confirmation dialog
-        await dialog.showMessageBox({
-          type: 'info',
-          title: 'Permissions Checked',
-          message: 'Current permission status has been checked.',
-          detail: 'Screen: ' + screenAccess + '\nCamera: ' + cameraAccess + '\nMicrophone: ' + microphoneAccess + 
-                  '\n\nIf you\'ve recently granted permissions in System Settings, please restart the app.',
-          buttons: ['OK']
-        });
-        
+        let url = 'x-apple.systempreferences:com.apple.preference.security?Privacy';
+        if (type === 'screen') url += '_ScreenCapture';
+        else if (type === 'camera') url += '_Camera';
+        else if (type === 'microphone') url += '_Microphone';
+
+        shell.openExternal(url);
+        return true;
+      } else if (process.platform === 'win32') {
+        let url = 'ms-settings:privacy-webcam';
+        if (type === 'microphone') url = 'ms-settings:privacy-microphone';
+        // Windows doesn't typically have a specific screen recording permission setting page
+        // that users need to toggle like macOS, so we default to webcam/mic settings
+        // or just general privacy if needed.
+
+        shell.openExternal(url);
         return true;
       }
       return false;
     });
-    
-    ipcMain.handle('open-privacy-settings', () => {
+
+    ipcMain.handle('check-permissions', async () => {
+      const camera = systemPreferences.getMediaAccessStatus('camera');
+      const mic = systemPreferences.getMediaAccessStatus('microphone');
+
+      let screen = 'granted';
       if (process.platform === 'darwin') {
-        const { shell } = require('electron');
-        // Open Screen Recording settings
-        shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy');
-        return true;
+        screen = macPermissions.hasScreenCapturePermission() ? 'granted' : 'denied';
       }
-      return false;
+
+      return {
+        screen,
+        camera,
+        microphone: mic
+      };
+    });
+
+    ipcMain.handle('request-permission', async (event, type) => {
+      try {
+        if (type === 'camera' || type === 'microphone') {
+          return await systemPreferences.askForMediaAccess(type);
+        }
+        return false;
+      } catch (error) {
+        console.error(`Error requesting ${type} permission:`, error);
+        // On Windows, askForMediaAccess might throw or not exist in older Electron versions,
+        // or return true/false without prompting.
+        return false;
+      }
+    });
+
+    ipcMain.handle('relaunch-app', () => {
+      app.relaunch();
+      app.exit(0);
+    });
+
+    ipcMain.handle('permissions-completed', () => {
+      this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+      // Permissions granted, resume sessions
+      this.intervalManager.resumeActiveSessions();
+    });
+
+    ipcMain.handle('reset-permissions', async () => {
+      return await this.resetPermissionCache();
     });
   }
 
@@ -565,14 +580,29 @@ class ElectronCaptureApp {
     });
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      // On macOS, re-create or show the window when the dock icon is clicked
+      if (this.mainWindow === null) {
         this.createWindow();
+      } else if (this.mainWindow.isDestroyed()) {
+        this.createWindow();
+      } else {
+        // Window exists but might be hidden, show it
+        this.mainWindow.show();
+        if (process.platform === 'darwin') {
+          app.dock.show();
+        }
       }
     });
 
     app.on('before-quit', () => {
       this.isQuitting = true;
       globalShortcut.unregisterAll();
+
+      // Clean up tray to prevent multiple instances
+      if (this.tray) {
+        this.tray.destroy();
+        this.tray = null;
+      }
     });
   }
 
@@ -584,9 +614,9 @@ class ElectronCaptureApp {
         message: 'Permission reset is only available on macOS',
         buttons: ['OK']
       });
-      return;
+      return false;
     }
-    
+
     // Confirm with user
     const response = await dialog.showMessageBox({
       type: 'warning',
@@ -597,7 +627,7 @@ class ElectronCaptureApp {
       defaultId: 0,
       cancelId: 1
     });
-    
+
     if (response.response === 0) {
       // Clear the permission status for screen recording and camera
       try {
@@ -612,18 +642,19 @@ class ElectronCaptureApp {
             title: 'Manual Reset Required',
             message: 'Please run these commands in Terminal:',
             detail: 'tccutil reset ScreenCapture com.yourcompany.electron-capture-app\n' +
-                   'tccutil reset Camera com.yourcompany.electron-capture-app\n\n' +
-                   'Then restart the app.',
+              'tccutil reset Camera com.yourcompany.electron-capture-app\n\n' +
+              'Then restart the app.',
             buttons: ['OK']
           });
-          
+
           shell.openExternal('file:///Applications/Utilities/Terminal.app');
-          return;
+          return false;
         }
-        
+
         // Restart the app
         app.relaunch();
         app.exit();
+        return true;
       } catch (error) {
         console.error('Error resetting permissions:', error);
         dialog.showMessageBoxSync({
@@ -635,6 +666,7 @@ class ElectronCaptureApp {
         });
       }
     }
+    return false;
   }
 
   async selectSaveDirectory() {
@@ -644,20 +676,20 @@ class ElectronCaptureApp {
         title: 'Select Save Location',
         buttonLabel: 'Select'
       });
-      
+
       if (!result.canceled && result.filePaths.length > 0) {
         const newSaveDir = result.filePaths[0];
-        
+
         // Update the save directory
         this.store.set('saveDirectory', newSaveDir);
         this.captureManager.saveDirectory = newSaveDir;
-        
+
         // Try to create a test folder to verify access
         try {
           const testDir = path.join(newSaveDir, 'test-folder');
           await fs.mkdir(testDir, { recursive: true });
           await fs.rmdir(testDir);
-          
+
           dialog.showMessageBox({
             type: 'info',
             title: 'Save Location Updated',
@@ -666,7 +698,7 @@ class ElectronCaptureApp {
           });
         } catch (accessError) {
           console.error('Error testing save directory access:', accessError);
-          
+
           dialog.showMessageBox({
             type: 'warning',
             title: 'Permission Issue',
@@ -680,7 +712,7 @@ class ElectronCaptureApp {
       console.error('Error selecting save directory:', error);
     }
   }
-  
+
   async runDiagnostics() {
     try {
       // Check various components and return diagnostic info
@@ -696,7 +728,7 @@ class ElectronCaptureApp {
           HOME: process.env.HOME
         }
       };
-      
+
       // Check save directory
       const saveDir = this.store.get('saveDirectory') || app.getPath('pictures');
       diagnostics.saveDirectory = {
@@ -704,11 +736,11 @@ class ElectronCaptureApp {
         exists: false,
         writable: false
       };
-      
+
       try {
         const stats = await fs.stat(saveDir);
         diagnostics.saveDirectory.exists = stats.isDirectory();
-        
+
         try {
           const testFile = path.join(saveDir, `.test-${Date.now()}`);
           await fs.writeFile(testFile, 'test');
@@ -720,7 +752,7 @@ class ElectronCaptureApp {
       } catch (statError) {
         diagnostics.saveDirectory.statError = statError.message;
       }
-      
+
       // Check if imagesnap exists
       if (process.platform === 'darwin') {
         try {
@@ -729,7 +761,7 @@ class ElectronCaptureApp {
             found: true,
             path: stdout.trim()
           };
-          
+
           // Try to list cameras with imagesnap
           try {
             const { stdout: cameraOutput } = await promisify(exec)(`${stdout.trim()} -l`);
@@ -743,7 +775,7 @@ class ElectronCaptureApp {
             error: whichError.toString()
           };
         }
-        
+
         // Check permissions
         diagnostics.permissions = {
           screen: systemPreferences.getMediaAccessStatus('screen'),
@@ -751,9 +783,9 @@ class ElectronCaptureApp {
           microphone: systemPreferences.getMediaAccessStatus('microphone')
         };
       }
-      
+
       console.log('Diagnostics:', diagnostics);
-      
+
       // Show diagnostic info in a dialog
       dialog.showMessageBox({
         type: 'info',
@@ -763,7 +795,7 @@ class ElectronCaptureApp {
         buttons: ['OK'],
         defaultId: 0
       });
-      
+
       return diagnostics;
     } catch (error) {
       console.error('Error running diagnostics:', error);
@@ -774,4 +806,4 @@ class ElectronCaptureApp {
 
 // Initialize the application
 const captureApp = new ElectronCaptureApp();
-captureApp.initialize().catch(console.error); 
+captureApp.initialize().catch(console.error);

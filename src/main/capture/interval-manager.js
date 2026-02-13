@@ -16,13 +16,22 @@ class IntervalManager {
       await this.dbManager.initialize();
     }
     await this.captureManager.initialize();
-    
-    // Resume any active sessions from database
-    await this.resumeActiveSessions();
+
+    // We do NOT resume sessions automatically here anymore.
+    // This is to prevent capture attempts before permissions are granted.
+    // Sessions will be resumed by the main process after permission checks.
   }
 
   async startSession(config) {
     try {
+      // Check if there's already an active session
+      const activeSessions = this.getActiveSessions();
+      const activeSession = activeSessions.find(session => session.status === 'active');
+
+      if (activeSession) {
+        throw new Error(`Cannot start new session. Another session is already active: ${activeSession.session_name || activeSession.session_id}`);
+      }
+
       const sessionId = uuidv4();
       const sessionData = {
         session_id: sessionId,
@@ -73,7 +82,7 @@ class IntervalManager {
 
         // Perform the capture
         await this.performCapture(sessionId, sessionData);
-        
+
         // We don't need to manually update capture count here anymore
         // since performCapture now calls updateSessionCaptureCount
 
@@ -94,8 +103,8 @@ class IntervalManager {
         result = await this.captureManager.captureForInterval(sessionId, 'screenshot');
       } else if (sessionData.capture_type === 'camera') {
         result = await this.captureManager.captureForInterval(
-          sessionId, 
-          'camera', 
+          sessionId,
+          'camera',
           sessionData.device_id
         );
       } else if (sessionData.capture_type === 'both') {
@@ -130,18 +139,18 @@ class IntervalManager {
     try {
       // First, update the database
       await this.dbManager.incrementSessionCaptures(sessionId);
-      
+
       // Then, get the latest session data from database
       const updatedSessionData = await this.dbManager.getSession(sessionId);
-      
+
       if (updatedSessionData && this.activeSessions.has(sessionId)) {
         // Update the in-memory session with the correct count from database
         const session = this.activeSessions.get(sessionId);
         session.capture_count = updatedSessionData.capture_count;
         this.activeSessions.set(sessionId, session);
-        
+
         console.log(`Updated session ${sessionId} capture count: ${session.capture_count}`);
-        
+
         // Notify the renderer process of the updated session
         this.notifySessionUpdate(session);
       }
@@ -195,6 +204,14 @@ class IntervalManager {
 
       if (session.status !== 'paused') {
         throw new Error(`Session is not paused: ${sessionId}`);
+      }
+
+      // Check if there's already another active session
+      const activeSessions = this.getActiveSessions();
+      const activeSession = activeSessions.find(s => s.status === 'active' && s.session_id !== sessionId);
+
+      if (activeSession) {
+        throw new Error(`Cannot resume session. Another session is already active: ${activeSession.session_name || activeSession.session_id}`);
       }
 
       // Update session status
@@ -252,6 +269,11 @@ class IntervalManager {
     return Array.from(this.activeSessions.values());
   }
 
+  hasActiveSession() {
+    const activeSessions = this.getActiveSessions();
+    return activeSessions.some(session => session.status === 'active');
+  }
+
   getSession(sessionId) {
     return this.activeSessions.get(sessionId);
   }
@@ -259,7 +281,7 @@ class IntervalManager {
   async resumeActiveSessions() {
     try {
       const activeSessions = await this.dbManager.getActiveSessions();
-      
+
       for (const sessionData of activeSessions) {
         // Add to active sessions map
         this.activeSessions.set(sessionData.session_id, {
@@ -291,7 +313,7 @@ class IntervalManager {
   // Cleanup method to stop all sessions
   async stopAllSessions() {
     const sessionIds = Array.from(this.activeSessions.keys());
-    
+
     for (const sessionId of sessionIds) {
       try {
         await this.stopSession(sessionId);
@@ -311,7 +333,7 @@ class IntervalManager {
     const now = new Date();
     const elapsed = Math.floor((now - session.start_time) / 1000);
     const estimatedTotal = session.max_captures || 'Unlimited';
-    
+
     return {
       session_id: sessionId,
       session_name: session.session_name,
@@ -322,7 +344,7 @@ class IntervalManager {
       max_captures: session.max_captures,
       elapsed_seconds: elapsed,
       estimated_total: estimatedTotal,
-      progress_percentage: session.max_captures ? 
+      progress_percentage: session.max_captures ?
         Math.round((session.capture_count / session.max_captures) * 100) : null
     };
   }

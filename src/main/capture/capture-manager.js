@@ -1,6 +1,5 @@
 const screenshot = require('screenshot-desktop');
 const NodeWebcam = require('node-webcam');
-const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs').promises;
 const { DatabaseManager } = require('../database/database-manager');
@@ -37,34 +36,36 @@ class CaptureManager {
     if (!this.dbManager.db) {
       await this.dbManager.initialize();
     }
-    
+
     console.log('Initializing CaptureManager...');
-    
+
     try {
       // Get save directory
       this.saveDirectory = this.store.get('saveDirectory') || app.getPath('pictures');
       console.log('Save directory:', this.saveDirectory);
-      
+
       // Check and set up permissions on macOS
       if (process.platform === 'darwin') {
         console.log('Checking macOS permissions...');
-        
-        // Check screen recording permission
-        await this.checkMacOSScreenRecordingPermission();
-        
+
+        // We no longer pop up a dialog here during initialization.
+        // The main process window creation handles the onboarding flow via permissions.html
+        const hasScreenPermission = macPermissions.hasScreenCapturePermission();
+        console.log(`Screen capture permission status: ${hasScreenPermission}`);
+
         // Check camera permission (but don't request it yet to avoid prompts on startup)
         const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
         console.log(`Camera access status: ${cameraAccess}`);
-        
+
         // Check and install imagesnap
         const imagesnapAvailable = await this.checkAndInstallImagesnap();
         console.log(`imagesnap available: ${imagesnapAvailable}`);
       }
-      
+
       // Enumerate cameras and set default if not already set
       console.log('Initializing camera settings...');
       await this.initializeDefaultCamera();
-      
+
       console.log('CaptureManager initialization complete');
     } catch (error) {
       console.error('Error during CaptureManager initialization:', error);
@@ -75,37 +76,37 @@ class CaptureManager {
     if (process.platform !== 'darwin') {
       return true;
     }
-    
+
     console.log('Checking macOS screen recording permission...');
-    
+
     // macOS 10.15 (Catalina) and later requires special permissions for screen recording
     try {
       const hasPermission = macPermissions.hasScreenCapturePermission();
       console.log(`Screen capture permission: ${hasPermission}`);
-      
+
       if (!hasPermission) {
         // Show dialog explaining why permission is needed and how to grant it
         const response = await dialog.showMessageBox({
           type: 'warning',
           title: 'Screen Recording Permission Required',
           message: 'This app requires Screen Recording permission',
-          detail: 'To capture screenshots, you need to enable Screen Recording permission for this app in System Settings.\n\n' + 
-                 'Steps to enable permission:\n' +
-                 '1. Click "Open Settings" below\n' +
-                 '2. Go to Privacy & Security → Screen Recording\n' +
-                 '3. Find and check the box next to "Capture App"\n' +
-                 '4. Quit and restart the app\n\n' +
-                 'Note: If you don\'t see the app in the list, try taking a screenshot first. macOS will then prompt you to grant permission.',
+          detail: 'To capture screenshots, you need to enable Screen Recording permission for this app in System Settings.\n\n' +
+            'Steps to enable permission:\n' +
+            '1. Click "Open Settings" below\n' +
+            '2. Go to Privacy & Security → Screen Recording\n' +
+            '3. Find and check the box next to "Capture App"\n' +
+            '4. Quit and restart the app\n\n' +
+            'Note: If you don\'t see the app in the list, try taking a screenshot first. macOS will then prompt you to grant permission.',
           buttons: ['Open Settings', 'Take Screenshot Anyway', 'Cancel'],
           defaultId: 0,
           cancelId: 2
         });
-        
+
         if (response.response === 0) {
           // Open System Preferences to the Screen Recording permission
           const { shell } = require('electron');
           shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
-          
+
           // Let the user know they should restart the app after granting permission
           dialog.showMessageBox({
             type: 'info',
@@ -118,10 +119,10 @@ class CaptureManager {
           console.log('User opted to take screenshot without confirmed permission');
           return true;
         }
-        
+
         return false;
       }
-      
+
       return true;
     } catch (error) {
       console.error('Error checking screen recording permission:', error);
@@ -134,10 +135,10 @@ class CaptureManager {
       // Not needed on non-macOS platforms
       return true;
     }
-    
+
     try {
       console.log('Checking if imagesnap is installed...');
-      
+
       // In packaged apps, PATH is restricted - add common brew paths
       if (app.isPackaged) {
         // Add common Homebrew paths to PATH for packaged app
@@ -145,20 +146,20 @@ class CaptureManager {
           '/usr/local/bin',
           '/opt/homebrew/bin'
         ];
-        
+
         // Get current PATH and add Homebrew paths
         const currentPath = process.env.PATH || '';
         process.env.PATH = [...homebrewPaths, currentPath].join(':');
         console.log('Updated PATH for packaged app:', process.env.PATH);
       }
-      
+
       // First check common installation paths
       const possiblePaths = [
         '/usr/local/bin/imagesnap',
         '/opt/homebrew/bin/imagesnap',
         '/usr/bin/imagesnap'
       ];
-      
+
       // Check if imagesnap exists in any of the common paths
       for (const imagesnapPath of possiblePaths) {
         try {
@@ -169,7 +170,7 @@ class CaptureManager {
           // Path doesn't exist, continue checking
         }
       }
-      
+
       // If we get here, try using 'which' to find it
       try {
         const { stdout } = await execAsync('which imagesnap');
@@ -180,29 +181,29 @@ class CaptureManager {
       } catch (whichError) {
         console.log('imagesnap not found in PATH');
       }
-      
+
       // If packaged app, try to install imagesnap locally in the app's temp directory
       if (app.isPackaged) {
         try {
           const tempDir = app.getPath('temp');
           const localImagesnapDir = path.join(tempDir, 'imagesnap');
           const localImagesnapPath = path.join(localImagesnapDir, 'imagesnap');
-          
+
           // Create directory if it doesn't exist
           await fs.mkdir(localImagesnapDir, { recursive: true });
-          
+
           // Check if we already have a local copy
           try {
             await fs.access(localImagesnapPath);
             console.log(`Using local imagesnap at: ${localImagesnapPath}`);
-            
+
             // Add to PATH
             process.env.PATH = `${localImagesnapDir}:${process.env.PATH}`;
             return true;
           } catch (accessErr) {
             // Local copy doesn't exist, try to download
             console.log('Attempting to download imagesnap binary...');
-            
+
             const response = await dialog.showMessageBox({
               type: 'info',
               title: 'Camera Setup',
@@ -212,7 +213,7 @@ class CaptureManager {
               defaultId: 0,
               cancelId: 1
             });
-            
+
             if (response.response === 0) {
               // Create installation script
               const scriptPath = path.join(tempDir, 'install-imagesnap-local.command');
@@ -273,14 +274,14 @@ echo ""
 echo "Press any key to close this window"
 read -n 1
 `;
-              
+
               // Write and execute the script
               await fs.writeFile(scriptPath, scriptContent);
               await fs.chmod(scriptPath, 0o755);
-              
+
               const { shell } = require('electron');
               shell.openExternal(`file://${scriptPath}`);
-              
+
               // Inform user to restart the app
               dialog.showMessageBox({
                 type: 'info',
@@ -290,20 +291,20 @@ read -n 1
               });
             }
           }
-          
+
           return false;
         } catch (localInstallError) {
           console.error('Error setting up local imagesnap:', localInstallError);
         }
       }
-      
+
       // If we get here, try the normal Homebrew installation flow
       console.log('Attempting normal imagesnap installation...');
-      
+
       // Check if Homebrew is installed
       try {
         await execAsync('which brew');
-        
+
         // Try to install with homebrew
         console.log('Homebrew found, attempting to install imagesnap...');
         try {
@@ -316,7 +317,7 @@ read -n 1
       } catch (noBrewError) {
         console.log('Homebrew not found, cannot automatically install imagesnap');
       }
-      
+
       // If we get here, installation failed or Homebrew not available
       const response = await dialog.showMessageBox({
         type: 'warning',
@@ -327,12 +328,12 @@ read -n 1
         defaultId: 0,
         cancelId: 1
       });
-      
+
       if (response.response === 0) {
         // Create a temporary script to guide the user
         const tmpDir = app.getPath('temp');
         const scriptPath = path.join(tmpDir, 'install-imagesnap.command');
-        
+
         const scriptContent = `#!/bin/bash
 echo "=== MamaTracker: Installing imagesnap ==="
 echo ""
@@ -387,34 +388,34 @@ echo ""
 echo "Press any key to close this window"
 read -n 1
 `;
-        
+
         // Write the script to a temporary file
         await fs.writeFile(scriptPath, scriptContent);
         await fs.chmod(scriptPath, 0o755); // Make executable
-        
+
         // Open the script in Terminal
         const { shell } = require('electron');
         shell.openExternal(`file://${scriptPath}`);
       }
-      
+
       return false;
     } catch (error) {
       console.error('Error checking for imagesnap:', error);
       return false;
     }
   }
-  
+
   async initializeDefaultCamera() {
     try {
       // Enumerate available cameras
       console.log('Enumerating cameras during initialization...');
       const cameras = await this.enumerateCameras();
       console.log('Available cameras:', cameras);
-      
+
       // Get stored default camera ID
       const storedDefaultId = this.store.get('defaultCameraDeviceId');
       console.log('Stored default camera ID:', storedDefaultId);
-      
+
       // If no default camera is set but cameras are available, set the first one as default
       if ((!storedDefaultId || storedDefaultId === 'default') && cameras.length > 0) {
         const newDefaultId = cameras[0].device_id;
@@ -423,7 +424,7 @@ read -n 1
       } else if (storedDefaultId) {
         // Check if the stored default camera still exists
         const cameraExists = cameras.some(camera => camera.device_id === storedDefaultId);
-        
+
         if (!cameraExists && cameras.length > 0) {
           // If the stored camera no longer exists, update to the first available
           const newDefaultId = cameras[0].device_id;
@@ -435,7 +436,7 @@ read -n 1
       console.error('Failed to initialize default camera:', error);
     }
   }
-  
+
   // Method to set default camera
   setDefaultCamera(deviceId) {
     this.defaultCameraId = deviceId;
@@ -447,23 +448,23 @@ read -n 1
   async captureFullScreen() {
     try {
       console.log('Capturing full screen...');
-      
+
       // Capture full screen screenshot
       const imageBuffer = await screenshot({ format: 'png' });
-      
+
       // Save screenshot
       return this.saveScreenshot(imageBuffer, 'screenshot');
     } catch (error) {
       console.error('Full screen capture failed:', error);
-      
+
       // Check if this might be a permission error
       if (error.message && (
-          error.message.includes('permission') || 
-          error.message.includes('access') ||
-          error.message.includes('screen capture'))) {
+        error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('screen capture'))) {
         await this.handlePermissionError(error, 'screenshot');
       }
-      
+
       throw error;
     }
   }
@@ -476,12 +477,12 @@ read -n 1
         if (!hasPermission) {
           throw new Error('Screen recording permission is required. Please restart the app after granting permission in System Preferences.');
         }
-        
+
         // Window capture is not well-supported across platforms
         // For now, we'll just capture the full screen on macOS
         return await this.captureFullScreen();
       }
-      
+
       const img = await screenshot({ format: 'png' });
       return await this.saveScreenshot(img, 'window');
     } catch (error) {
@@ -492,10 +493,10 @@ read -n 1
 
   async captureScreenshot(options = {}) {
     const { type = 'fullscreen', saveToDisk = true, includeTimestamp = true } = options;
-    
+
     try {
       let imageBuffer;
-      
+
       // Capture based on type
       if (type === 'fullscreen') {
         imageBuffer = await screenshot({ format: 'png' });
@@ -505,7 +506,7 @@ read -n 1
       } else {
         throw new Error(`Unknown screenshot type: ${type}`);
       }
-      
+
       // If we don't need to save to disk, just return the buffer
       if (!saveToDisk) {
         return {
@@ -513,7 +514,7 @@ read -n 1
           buffer: imageBuffer
         };
       }
-      
+
       // Otherwise, save to disk and return file info
       const result = await this.saveScreenshot(imageBuffer, 'screenshot');
       return {
@@ -522,15 +523,15 @@ read -n 1
       };
     } catch (error) {
       console.error('Screenshot capture failed:', error);
-      
+
       // Check if this might be a permission error
       if (error.message && (
-          error.message.includes('permission') || 
-          error.message.includes('access') ||
-          error.message.includes('screen capture'))) {
+        error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('screen capture'))) {
         await this.handlePermissionError(error, 'screenshot');
       }
-      
+
       return {
         success: false,
         error: error.message
@@ -542,20 +543,22 @@ read -n 1
     try {
       const timestamp = new Date();
       const dateFolder = this.formatDate(timestamp);
-      
+
       // Use different prefix for composite images
       const prefix = captureType === 'composite' ? 'COMPOSITE' : 'SCREEN';
       const filename = this.generateFilename(prefix, timestamp, 'png');
-      
+
       const saveDir = await this.fileManager.ensureDateFolder(dateFolder);
       const filepath = path.join(saveDir, filename);
-      
+
       // Save the image
       await fs.writeFile(filepath, imageBuffer);
-      
-      // Get image metadata
-      const metadata = await sharp(imageBuffer).metadata();
-      
+
+      // Get image metadata using canvas instead of sharp
+      const img = await loadImage(imageBuffer);
+      const width = img.width;
+      const height = img.height;
+
       // Save to database - wrapped in try/catch to continue even if DB fails
       let dbResult = { id: 0 };
       try {
@@ -566,24 +569,24 @@ read -n 1
           capture_type: captureType === 'composite' ? 'composite' : 'screenshot',
           capture_mode: 'manual',
           file_size: imageBuffer.length,
-          width: metadata.width,
-          height: metadata.height,
+          width: width,
+          height: height,
           thumbnail_path: null // No longer generating thumbnails
         };
-        
+
         dbResult = await this.dbManager.insertCapture(captureData);
       } catch (dbError) {
         console.error('Database save failed, but file was saved:', dbError);
       }
-      
+
       return {
         id: dbResult.id,
         filepath,
         filename,
         thumbnail_path: null,
         metadata: {
-          width: metadata.width,
-          height: metadata.height,
+          width: width,
+          height: height,
           size: imageBuffer.length
         }
       };
@@ -597,24 +600,24 @@ read -n 1
   async enumerateCameras() {
     try {
       console.log('Enumerating cameras...');
-      
+
       if (process.platform === 'darwin') {
         // On macOS, we'll use the imagesnap tool to list available devices
         // First make sure imagesnap is installed
         await this.checkAndInstallImagesnap();
-        
+
         return new Promise((resolve, reject) => {
           // Get PATH to ensure imagesnap can be found
           const pathEnv = process.env.PATH || '';
           console.log('Current PATH:', pathEnv);
-          
+
           // Try to find imagesnap in common locations
           let imagesnap = 'imagesnap';
-          
+
           // In production builds, we might need to handle paths differently
           const isPackaged = app.isPackaged;
           console.log('App is packaged:', isPackaged);
-          
+
           // Check if we can use imagesnap directly
           exec('which imagesnap', async (whichErr, whichStdout) => {
             if (whichErr) {
@@ -626,10 +629,10 @@ read -n 1
               }]);
               return;
             }
-            
+
             const imagesnapPath = whichStdout.trim();
             console.log('Found imagesnap at:', imagesnapPath);
-            
+
             // Now use the full path to imagesnap
             exec(`${imagesnapPath} -l`, (error, stdout, stderr) => {
               if (error) {
@@ -642,12 +645,12 @@ read -n 1
                 }]);
                 return;
               }
-              
+
               console.log('Available cameras from imagesnap:', stdout);
-              
+
               const devices = [];
               const lines = stdout.split('\n');
-              
+
               // Parse the output to find camera devices
               // Format is like:
               // Video Devices:
@@ -665,7 +668,7 @@ read -n 1
                   });
                 }
               }
-              
+
               if (!foundDevices) {
                 // If no devices found but command succeeded, add a default device
                 devices.push({
@@ -674,7 +677,7 @@ read -n 1
                   device_type: 'camera'
                 });
               }
-              
+
               resolve(devices);
             });
           });
@@ -684,7 +687,7 @@ read -n 1
         try {
           const NodeWebcam = require('node-webcam');
           const devices = await NodeWebcam.getListOfAvailableDevices() || [];
-          
+
           if (devices.length === 0) {
             return [{
               device_id: '0',
@@ -692,7 +695,7 @@ read -n 1
               device_type: 'camera'
             }];
           }
-          
+
           return devices.map((device, index) => ({
             device_id: device.id || index.toString(),
             device_name: device.name || `Camera ${index + 1}`,
@@ -720,23 +723,23 @@ read -n 1
   async capturePhoto(deviceId = null) {
     try {
       console.log('Attempting camera capture...');
-      
+
       // Use default camera if none specified
       const cameraId = deviceId || this.defaultCameraId || false;
       console.log('Using camera ID:', cameraId);
-      
+
       const timestamp = new Date();
       const dateFolder = this.formatDate(timestamp);
       const filename = this.generateFilename('CAMERA', timestamp, 'jpg');
-      
+
       const saveDir = await this.fileManager.ensureDateFolder(dateFolder);
       const filepath = path.join(saveDir, filename);
-      
+
       const webcamOptions = {
         ...this.webcamOptions,
         device: cameraId
       };
-      
+
       // On macOS, we need different settings
       if (process.platform === 'darwin') {
         if (cameraId === 'default') {
@@ -750,10 +753,10 @@ read -n 1
           webcamOptions.device = false;
         }
       }
-      
+
       console.log('Webcam options:', webcamOptions);
       const webcam = NodeWebcam.create(webcamOptions);
-      
+
       // Capture photo
       const tempPath = await new Promise((resolve, reject) => {
         webcam.capture(filename, (err, data) => {
@@ -766,15 +769,17 @@ read -n 1
           }
         });
       });
-      
+
       // Move from temp location to our organized structure
       const imageBuffer = await fs.readFile(tempPath);
       await fs.writeFile(filepath, imageBuffer);
       await fs.unlink(tempPath); // Clean up temp file
-      
-      // Get image metadata
-      const metadata = await sharp(imageBuffer).metadata();
-      
+
+      // Get image metadata using canvas
+      const img = await loadImage(imageBuffer);
+      const width = img.width;
+      const height = img.height;
+
       // Save to database - wrapped in try/catch to continue even if DB fails
       let dbResult = { id: 0 };
       try {
@@ -785,17 +790,17 @@ read -n 1
           capture_type: 'camera',
           capture_mode: 'manual',
           file_size: imageBuffer.length,
-          width: metadata.width,
-          height: metadata.height,
+          width: width,
+          height: height,
           device_info: { device_id: cameraId || 'default' },
           thumbnail_path: null // No longer generating thumbnails
         };
-        
+
         dbResult = await this.dbManager.insertCapture(captureData);
       } catch (dbError) {
         console.error('Database save failed, but file was saved:', dbError);
       }
-      
+
       return {
         id: dbResult.id,
         filepath,
@@ -809,15 +814,15 @@ read -n 1
       };
     } catch (error) {
       console.error('Camera capture failed:', error);
-      
+
       // Check if this might be a permission error
       if (error.message && (
-          error.message.includes('permission') || 
-          error.message.includes('access') ||
-          error.message.includes('imagesnap'))) {
+        error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('imagesnap'))) {
         await this.handlePermissionError(error, 'camera');
       }
-      
+
       throw error;
     }
   }
@@ -841,7 +846,7 @@ read -n 1
     const hours = String(timestamp.getHours()).padStart(2, '0');
     const minutes = String(timestamp.getMinutes()).padStart(2, '0');
     const seconds = String(timestamp.getSeconds()).padStart(2, '0');
-    
+
     return `${prefix}-${year}-${month}-${day}_${hours}-${minutes}-${seconds}.${extension}`;
   }
 
@@ -849,7 +854,7 @@ read -n 1
   async captureForInterval(sessionId, captureType, deviceId = null) {
     try {
       let result;
-      
+
       if (captureType === 'screenshot') {
         result = await this.captureFullScreen();
       } else if (captureType === 'camera') {
@@ -863,10 +868,10 @@ read -n 1
       } else {
         throw new Error(`Unknown capture type: ${captureType}`);
       }
-      
+
       // We no longer need to increment session captures here
       // It's now handled by the IntervalManager
-      
+
       return result;
     } catch (error) {
       console.error('Interval capture failed:', error);
@@ -878,29 +883,29 @@ read -n 1
   async captureBoth(deviceId = null, sessionId = null) {
     try {
       console.log('Capturing both screenshot and camera...');
-      
+
       // First, try to capture screenshot
       let screenshotResult = null;
       let cameraResult = null;
-      
+
       try {
         screenshotResult = await this.captureFullScreen();
       } catch (screenshotError) {
         console.error('Screenshot capture failed in combined capture:', screenshotError);
       }
-      
+
       // Then try to capture camera
       try {
         cameraResult = await this.capturePhoto(deviceId);
       } catch (cameraError) {
         console.error('Camera capture failed in combined capture:', cameraError);
       }
-      
+
       // If both failed, throw an error
       if (!screenshotResult && !cameraResult) {
         throw new Error('Both screenshot and camera captures failed');
       }
-      
+
       // Return the results
       return {
         screenshot: screenshotResult,
@@ -917,17 +922,17 @@ read -n 1
   async capturePhotoBuffer(deviceId = null) {
     try {
       console.log('Attempting camera capture to buffer...');
-      
+
       // Use default camera if none specified
       const cameraId = deviceId || this.defaultCameraId || false;
       console.log('Using camera ID for buffer capture:', cameraId);
-      
+
       const webcamOptions = {
         ...this.webcamOptions,
         device: cameraId,
         output: 'buffer'
       };
-      
+
       // On macOS, we need different settings
       if (process.platform === 'darwin') {
         if (cameraId === 'default') {
@@ -941,10 +946,10 @@ read -n 1
           webcamOptions.device = false;
         }
       }
-      
+
       console.log('Webcam options:', webcamOptions);
       const webcam = NodeWebcam.create(webcamOptions);
-      
+
       // Capture photo to buffer
       return new Promise((resolve, reject) => {
         webcam.capture('temp', (err, data) => {
@@ -966,106 +971,53 @@ read -n 1
       });
     } catch (error) {
       console.error('Camera capture to buffer failed:', error);
-      
+
       // Check if this might be a permission error
       if (error.message && (
-          error.message.includes('permission') || 
-          error.message.includes('access') ||
-          error.message.includes('imagesnap'))) {
+        error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('imagesnap'))) {
         await this.handlePermissionError(error, 'camera');
       }
-      
+
       throw error;
     }
   }
 
-  async createCompositeImage(screenshotBuffer, cameraBuffer) {
-    try {
-      const timestamp = new Date();
-      const dateTime = timestamp.toLocaleString();
-      
-      // Get dimensions of the screenshot
-      const metadata = await sharp(screenshotBuffer).metadata();
-      const { width, height } = metadata;
-      
-      // Resize camera image to be 1/5 of the screenshot width
-      const cameraWidth = Math.floor(width / 5);
-      const cameraHeight = Math.floor(cameraWidth * 3 / 4); // 4:3 aspect ratio
-      
-      // Resize and position camera image at the bottom right corner
-      const resizedCamera = await sharp(cameraBuffer)
-        .resize(cameraWidth, cameraHeight, { fit: 'cover' })
-        .toBuffer();
-      
-      // Load screenshot into canvas
-      const screenshotImage = await loadImage(screenshotBuffer);
-      const canvas = createCanvas(width, height);
-      const ctx = canvas.getContext('2d');
-      
-      // Draw the screenshot
-      ctx.drawImage(screenshotImage, 0, 0, width, height);
-      
-      // Draw a semi-transparent background for the timestamp
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(10, 10, 400, 50);
-      
-      // Draw the timestamp text
-      ctx.fillStyle = 'white';
-      ctx.font = 'bold 28px Arial';
-      ctx.fillText(dateTime, 25, 45);
-      
-      // Convert canvas to buffer
-      const canvasBuffer = canvas.toBuffer('image/png');
-      
-      // Overlay the camera image
-      return await sharp(canvasBuffer)
-        .composite([
-          {
-            input: resizedCamera,
-            top: height - cameraHeight - 20,
-            left: width - cameraWidth - 20
-          }
-        ])
-        .png()
-        .toBuffer();
-    } catch (error) {
-      console.error('Failed to create composite image:', error);
-      throw error;
-    }
-  }
+
 
   async handlePermissionError(error, captureType) {
     console.error(`Permission error for ${captureType} capture:`, error);
-    
+
     if (process.platform === 'darwin') {
       // Check current permissions
       const screenAccess = systemPreferences.getMediaAccessStatus('screen');
       const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
       console.log(`Current permissions - Screen: ${screenAccess}, Camera: ${cameraAccess}`);
-      
+
       // If permissions are already granted but still getting errors, provide alternative guidance
       if ((captureType === 'screenshot' && screenAccess === 'granted') ||
-          (captureType === 'camera' && cameraAccess === 'granted') ||
-          (captureType === 'composite' && screenAccess === 'granted' && cameraAccess === 'granted')) {
-        
+        (captureType === 'camera' && cameraAccess === 'granted') ||
+        (captureType === 'composite' && screenAccess === 'granted' && cameraAccess === 'granted')) {
+
         // Show alternative instructions for when permissions are granted but not working
         const response = await dialog.showMessageBox({
           type: 'info',
           title: 'Permission Issue',
           message: 'Permissions appear to be granted but still having issues',
           detail: 'Try these steps:\n\n' +
-                  '1. Quit the app completely\n' +
-                  '2. Open Terminal and run: killall Capture\\ App\n' +
-                  '3. Open System Settings → Privacy & Security\n' +
-                  '4. Under Screen Recording and Camera, toggle the permission OFF and then back ON\n' +
-                  '5. Restart your computer\n' +
-                  '6. Launch the app again\n\n' +
-                  'For camera issues, also check if imagesnap is installed by running "which imagesnap" in Terminal.',
+            '1. Quit the app completely\n' +
+            '2. Open Terminal and run: killall Capture\\ App\n' +
+            '3. Open System Settings → Privacy & Security\n' +
+            '4. Under Screen Recording and Camera, toggle the permission OFF and then back ON\n' +
+            '5. Restart your computer\n' +
+            '6. Launch the app again\n\n' +
+            'For camera issues, also check if imagesnap is installed by running "which imagesnap" in Terminal.',
           buttons: ['Open Terminal', 'Open Privacy Settings', 'Cancel'],
           defaultId: 0,
           cancelId: 2
         });
-        
+
         if (response.response === 0) {
           const { shell } = require('electron');
           shell.openExternal('file:///Applications/Utilities/Terminal.app');
@@ -1073,14 +1025,14 @@ read -n 1
           const { shell } = require('electron');
           shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy');
         }
-        
+
         return;
       }
-      
+
       // Default case for when permissions are not granted
       let message = 'Permission error';
       let detail = 'Please check app permissions in System Settings.';
-      
+
       if (captureType === 'screenshot' && screenAccess !== 'granted') {
         message = 'Screen Recording Permission Required';
         detail = 'This app needs screen recording permission. Please open System Settings → Privacy & Security → Screen Recording, and enable this app.';
@@ -1091,7 +1043,7 @@ read -n 1
         message = 'Multiple Permissions Required';
         detail = 'Composite capture requires both screen recording and camera permissions. Please check both in System Settings → Privacy & Security.';
       }
-      
+
       // Show permission guidance dialog
       const response = await dialog.showMessageBox({
         type: 'warning',
@@ -1102,7 +1054,7 @@ read -n 1
         defaultId: 0,
         cancelId: 1
       });
-      
+
       if (response.response === 0) {
         const { shell } = require('electron');
         shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy');
@@ -1113,56 +1065,56 @@ read -n 1
   async takeCameraPhoto(options = {}) {
     try {
       console.log('Taking camera photo with options:', options);
-      
+
       // Check for camera permission on macOS
       if (process.platform === 'darwin') {
         const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
         console.log(`Camera access status: ${cameraAccess}`);
-        
+
         if (cameraAccess !== 'granted') {
           console.log('Requesting camera permission...');
           const hasAccess = await systemPreferences.askForMediaAccess('camera');
           console.log(`Camera permission request result: ${hasAccess}`);
-          
+
           if (!hasAccess) {
             throw new Error('Camera permission denied');
           }
         }
-        
+
         // Check for imagesnap on macOS, which is required for camera access
         const imagesnapAvailable = await this.checkAndInstallImagesnap();
         if (!imagesnapAvailable) {
           throw new Error('imagesnap not available, which is required for camera capture on macOS');
         }
       }
-      
+
       // Get selected camera device
       const deviceId = options.deviceId || this.store.get('defaultCameraDeviceId');
       console.log(`Using camera device ID: ${deviceId || 'default'}`);
-      
+
       // Get timestamp and filename
       const timestamp = new Date();
       const dateStr = format(timestamp, 'yyyy-MM-dd');
       const timeStr = format(timestamp, 'HH-mm-ss');
-      
+
       // Generate filename
       const filename = `CAMERA-${dateStr}_${timeStr}.jpg`;
-      
+
       // Use the same directory creation method as other captures
       const saveDir = await this.fileManager.ensureDateFolder(dateStr);
       const filepath = path.join(saveDir, filename);
-      
+
       console.log(`Saving camera photo to: ${filepath}`);
-      
+
       // Capture photo using appropriate method for the platform
       let success = false;
-      
+
       if (process.platform === 'darwin') {
         // Use imagesnap on macOS
         try {
           // Get imagesnap path
           let imagesnapPath = 'imagesnap';
-          
+
           // Try to find imagesnap with which
           try {
             const { stdout } = await execAsync('which imagesnap');
@@ -1171,7 +1123,7 @@ read -n 1
             }
           } catch (whichErr) {
             console.log('Could not find imagesnap with which, trying common paths');
-            
+
             // Check common paths
             const possiblePaths = [
               '/usr/local/bin/imagesnap',
@@ -1179,7 +1131,7 @@ read -n 1
               '/usr/bin/imagesnap',
               path.join(app.getPath('temp'), 'imagesnap', 'imagesnap')
             ];
-            
+
             for (const possiblePath of possiblePaths) {
               try {
                 await fs.access(possiblePath);
@@ -1191,23 +1143,23 @@ read -n 1
               }
             }
           }
-          
+
           console.log(`Using imagesnap at: ${imagesnapPath}`);
-          
+
           // Build command
           let command = `"${imagesnapPath}"`;
-          
+
           // Add device selection if specified
           if (deviceId) {
             command += ` -d "${deviceId}"`;
           }
-          
+
           // Add output path
           command += ` "${filepath}"`;
-          
+
           console.log(`Executing: ${command}`);
           await execAsync(command);
-          
+
           // Verify file was created
           try {
             await fs.access(filepath);
@@ -1235,11 +1187,11 @@ read -n 1
           callbackReturn: 'location',
           verbose: true
         };
-        
+
         // Create webcam instance
         const NodeWebcam = require('node-webcam');
         const Webcam = NodeWebcam.create(webcamOptions);
-        
+
         // Capture photo
         await new Promise((resolve, reject) => {
           Webcam.capture(filepath, (err, data) => {
@@ -1252,7 +1204,7 @@ read -n 1
             }
           });
         });
-        
+
         // Verify file exists
         try {
           await fs.access(filepath);
@@ -1263,11 +1215,11 @@ read -n 1
           throw new Error(`Camera capture completed but file not found at: ${filepath}`);
         }
       }
-      
+
       if (!success) {
         throw new Error('Failed to save camera photo');
       }
-      
+
       // Save to database
       const captureRecord = {
         filename,
@@ -1279,10 +1231,10 @@ read -n 1
         timestamp: timestamp.toISOString(),
         device_info: deviceId ? JSON.stringify({ deviceId }) : null
       };
-      
+
       await this.dbManager.insertCapture(captureRecord);
       console.log('Camera photo saved to database');
-      
+
       return {
         success: true,
         filepath,
@@ -1291,11 +1243,11 @@ read -n 1
       };
     } catch (error) {
       console.error('Error in takeCameraPhoto:', error);
-      
+
       // Check if this is a permission error
-      if (error.message.includes('permission') || 
-          error.message.includes('access') || 
-          error.message.includes('denied')) {
+      if (error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('denied')) {
         await this.handlePermissionError(error, 'camera');
       } else {
         // Generic error handling
@@ -1307,7 +1259,7 @@ read -n 1
           buttons: ['OK']
         });
       }
-      
+
       return {
         success: false,
         error: error.message
@@ -1318,83 +1270,83 @@ read -n 1
   async takeCompositeCapture(options = {}) {
     try {
       console.log('Taking composite capture with options:', options);
-      
+
       // Check both permissions on macOS
       if (process.platform === 'darwin') {
         // Check screen recording permission
         const screenAccess = systemPreferences.getMediaAccessStatus('screen');
         console.log(`Screen recording access status: ${screenAccess}`);
-        
+
         if (screenAccess !== 'granted') {
           throw new Error('Screen recording permission required for composite capture');
         }
-        
+
         // Check camera permission
         const cameraAccess = systemPreferences.getMediaAccessStatus('camera');
         console.log(`Camera access status: ${cameraAccess}`);
-        
+
         if (cameraAccess !== 'granted') {
           console.log('Requesting camera permission...');
           const hasAccess = await systemPreferences.askForMediaAccess('camera');
           console.log(`Camera permission request result: ${hasAccess}`);
-          
+
           if (!hasAccess) {
             throw new Error('Camera permission denied for composite capture');
           }
         }
-        
+
         // Check for imagesnap on macOS
         const imagesnapAvailable = await this.checkAndInstallImagesnap();
         if (!imagesnapAvailable) {
           throw new Error('imagesnap not available, which is required for camera capture on macOS');
         }
       }
-      
+
       // Get camera device ID
       const deviceId = options.deviceId || this.store.get('defaultCameraDeviceId');
-      
+
       // Get timestamp for both captures
       const timestamp = new Date();
       const dateStr = format(timestamp, 'yyyy-MM-dd');
       const timeStr = format(timestamp, 'HH-mm-ss');
-      
+
       // Generate filename for composite image
       const filename = `COMPOSITE-${dateStr}_${timeStr}.png`;
-      
+
       // Use the same directory creation method as other captures
       const saveDir = await this.fileManager.ensureDateFolder(dateStr);
       const filepath = path.join(saveDir, filename);
-      
+
       console.log(`Saving composite image to: ${filepath}`);
-      
+
       // Take screenshot first
       const screenshotResult = await this.captureScreenshot({
         includeTimestamp: false, // We'll add it to the composite
         saveToDisk: false // Just get the buffer
       });
-      
+
       if (!screenshotResult.success) {
         throw new Error(`Screenshot failed: ${screenshotResult.error}`);
       }
-      
+
       // Create a unique temp directory for this capture
       const tempDir = app.getPath('temp');
       const tempCaptureDir = path.join(tempDir, `composite-${Date.now()}`);
       await fs.mkdir(tempCaptureDir, { recursive: true });
-      
+
       // Create a unique temp file path for the camera capture
       const tempCameraPath = path.join(tempCaptureDir, `temp-camera-${Date.now()}.jpg`);
       console.log(`Using temporary camera file: ${tempCameraPath}`);
-      
+
       // Take camera photo to the temporary file
       let cameraSuccess = false;
-      
+
       if (process.platform === 'darwin') {
         // Use imagesnap on macOS
         try {
           // Get imagesnap path
           let imagesnapPath = 'imagesnap';
-          
+
           // Try to find imagesnap with which
           try {
             const { stdout } = await execAsync('which imagesnap');
@@ -1403,7 +1355,7 @@ read -n 1
             }
           } catch (whichErr) {
             console.log('Could not find imagesnap with which, trying common paths');
-            
+
             // Check common paths
             const possiblePaths = [
               '/usr/local/bin/imagesnap',
@@ -1411,7 +1363,7 @@ read -n 1
               '/usr/bin/imagesnap',
               path.join(app.getPath('temp'), 'imagesnap', 'imagesnap')
             ];
-            
+
             for (const possiblePath of possiblePaths) {
               try {
                 await fs.access(possiblePath);
@@ -1423,21 +1375,21 @@ read -n 1
               }
             }
           }
-          
+
           // Build command
           let command = `"${imagesnapPath}"`;
-          
+
           // Add device selection if specified
           if (deviceId) {
             command += ` -d "${deviceId}"`;
           }
-          
+
           // Add output path
           command += ` "${tempCameraPath}"`;
-          
+
           console.log(`Executing: ${command}`);
           await execAsync(command);
-          
+
           // Verify file was created
           try {
             await fs.access(tempCameraPath);
@@ -1463,10 +1415,10 @@ read -n 1
           callbackReturn: 'location',
           verbose: false
         };
-        
+
         const NodeWebcam = require('node-webcam');
         const Webcam = NodeWebcam.create(webcamOptions);
-        
+
         await new Promise((resolve, reject) => {
           Webcam.capture(tempCameraPath, (err, data) => {
             if (err) {
@@ -1478,7 +1430,7 @@ read -n 1
             }
           });
         });
-        
+
         // Verify file exists
         try {
           await fs.access(tempCameraPath);
@@ -1489,31 +1441,31 @@ read -n 1
           throw new Error(`Camera capture completed but file not found at: ${tempCameraPath}`);
         }
       }
-      
+
       if (!cameraSuccess) {
         throw new Error('Failed to capture camera image for composite');
       }
-      
+
       // Create canvas for composite image
       const { createCanvas, loadImage } = require('canvas');
-      
+
       try {
         // Load the screenshot and camera images
         console.log('Loading screenshot and camera images into canvas');
         const screenshotImage = await loadImage(screenshotResult.buffer);
         const cameraImage = await loadImage(tempCameraPath);
-        
+
         // Create canvas with screenshot dimensions
         const canvas = createCanvas(screenshotImage.width, screenshotImage.height);
         const ctx = canvas.getContext('2d');
-        
+
         // Draw screenshot as background
         ctx.drawImage(screenshotImage, 0, 0);
-        
+
         // Calculate camera overlay size and position (bottom right corner)
         const maxWidth = screenshotImage.width * 0.25; // Max 25% of screenshot width
         const maxHeight = screenshotImage.height * 0.25; // Max 25% of screenshot height
-        
+
         // Calculate aspect ratio-preserving dimensions
         let cameraWidth, cameraHeight;
         if (cameraImage.width / cameraImage.height > maxWidth / maxHeight) {
@@ -1525,41 +1477,41 @@ read -n 1
           cameraHeight = maxHeight;
           cameraWidth = (cameraImage.width / cameraImage.height) * maxHeight;
         }
-        
+
         // Position in bottom right with padding
         const paddingX = 20;
         const paddingY = 20;
         const cameraX = screenshotImage.width - cameraWidth - paddingX;
         const cameraY = screenshotImage.height - cameraHeight - paddingY;
-        
+
         // Draw camera image with a border
         ctx.fillStyle = '#FFFFFF'; // White border
         ctx.fillRect(cameraX - 5, cameraY - 5, cameraWidth + 10, cameraHeight + 10);
         ctx.drawImage(cameraImage, cameraX, cameraY, cameraWidth, cameraHeight);
-        
+
         // Add timestamp text
-        ctx.font = 'bold 24px Arial';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        
+        ctx.font = 'bold 48px Arial';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+
         // Create a semi-transparent background for the text
         const timeText = format(timestamp, 'yyyy-MM-dd HH:mm:ss');
         const textMetrics = ctx.measureText(timeText);
         const textWidth = textMetrics.width;
-        const textHeight = 30;
-        const textX = 20;
-        const textY = 40;
-        
+        const textHeight = 60;
+        const textX = 30;
+        const textY = 80;
+
         ctx.fillRect(textX - 10, textY - textHeight, textWidth + 20, textHeight + 10);
-        
+
         // Draw the text
         ctx.fillStyle = '#000000';
         ctx.fillText(timeText, textX, textY);
-        
+
         // Save the composite image
         console.log('Saving composite image to:', filepath);
         const buffer = canvas.toBuffer('image/png');
         await fs.writeFile(filepath, buffer);
-        
+
         // Clean up temporary file and directory
         try {
           await fs.unlink(tempCameraPath);
@@ -1567,7 +1519,7 @@ read -n 1
         } catch (unlinkError) {
           console.warn('Failed to clean up temporary files:', unlinkError);
         }
-        
+
         // Save to database
         const captureRecord = {
           filename,
@@ -1579,10 +1531,10 @@ read -n 1
           timestamp: timestamp.toISOString(),
           device_info: deviceId ? JSON.stringify({ deviceId }) : null
         };
-        
+
         await this.dbManager.insertCapture(captureRecord);
         console.log('Composite capture saved to database');
-        
+
         return {
           success: true,
           filepath,
@@ -1595,11 +1547,11 @@ read -n 1
       }
     } catch (error) {
       console.error('Error in takeCompositeCapture:', error);
-      
+
       // Check if this is a permission error
-      if (error.message.includes('permission') || 
-          error.message.includes('access') || 
-          error.message.includes('denied')) {
+      if (error.message.includes('permission') ||
+        error.message.includes('access') ||
+        error.message.includes('denied')) {
         await this.handlePermissionError(error, 'composite');
       } else {
         // Generic error handling
@@ -1611,7 +1563,7 @@ read -n 1
           buttons: ['OK']
         });
       }
-      
+
       return {
         success: false,
         error: error.message
@@ -1622,7 +1574,7 @@ read -n 1
   async ensureDirectoryExists(dirPath) {
     try {
       console.log(`Ensuring directory exists: ${dirPath}`);
-      
+
       // Check if directory already exists
       try {
         const stats = await fs.stat(dirPath);
@@ -1637,17 +1589,17 @@ read -n 1
         // Directory does not exist, create it
         if (statError.code === 'ENOENT') {
           console.log(`Creating directory: ${dirPath}`);
-          
+
           // First check if parent directory exists
           const parentDir = path.dirname(dirPath);
           if (parentDir !== dirPath) { // Avoid infinite recursion
             await this.ensureDirectoryExists(parentDir);
           }
-          
+
           // Now create the directory
           try {
             await fs.mkdir(dirPath, { recursive: true });
-            
+
             // Verify directory was created
             try {
               const stats = await fs.stat(dirPath);
@@ -1663,25 +1615,25 @@ read -n 1
             }
           } catch (mkdirError) {
             console.error(`Error creating directory: ${mkdirError.message}`);
-            
+
             // If directory creation failed, check if it's due to permissions
             if (mkdirError.code === 'EACCES') {
               throw new Error(`Permission denied creating directory: ${dirPath}`);
             }
-            
+
             // Try alternative approach for creating date folders
             if (path.basename(dirPath).match(/^\d{4}-\d{2}-\d{2}$/)) {
               // This is a date folder, try creating in Pictures directory as fallback
               const fallbackPath = path.join(app.getPath('pictures'), path.basename(dirPath));
               console.log(`Trying fallback directory: ${fallbackPath}`);
-              
+
               try {
                 await fs.mkdir(fallbackPath, { recursive: true });
                 // Update saveDirectory to use fallback location
                 this.saveDirectory = app.getPath('pictures');
                 this.store.set('saveDirectory', this.saveDirectory);
                 console.log(`Using fallback save directory: ${this.saveDirectory}`);
-                
+
                 // Inform user of location change
                 dialog.showMessageBox({
                   type: 'info',
@@ -1690,14 +1642,14 @@ read -n 1
                   detail: `Could not create directory at original location. Files will be saved to ${fallbackPath} instead.`,
                   buttons: ['OK']
                 });
-                
+
                 return true;
               } catch (fallbackError) {
                 console.error(`Fallback directory creation failed: ${fallbackError.message}`);
                 throw new Error(`Could not create directory at original or fallback location`);
               }
             }
-            
+
             throw mkdirError;
           }
         } else {
@@ -1708,7 +1660,7 @@ read -n 1
       }
     } catch (error) {
       console.error(`ensureDirectoryExists error: ${error.message}`);
-      
+
       // Show error dialog with detailed information
       dialog.showMessageBox({
         type: 'error',
@@ -1717,7 +1669,7 @@ read -n 1
         detail: `Error: ${error.message}\n\nPath: ${dirPath}\n\nPlease check app permissions and try a different save location.`,
         buttons: ['OK']
       });
-      
+
       throw error;
     }
   }

@@ -37,7 +37,6 @@
     "mac-screen-capture-permissions": "^2.1.0",
     "node-webcam": "^0.8.1",
     "screenshot-desktop": "^1.15.0",
-    "sharp": "^0.33.0",
     "uuid": "^9.0.0"
   },
   "build": {
@@ -57,10 +56,6 @@
         "to": "node_modules/better-sqlite3"
       },
       {
-        "from": "node_modules/sharp",
-        "to": "node_modules/sharp"
-      },
-      {
         "from": "node_modules/canvas",
         "to": "node_modules/canvas"
       }
@@ -72,11 +67,19 @@
     "mac": {
       "category": "public.app-category.photography",
       "target": "dmg",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSCameraUsageDescription": "This app needs access to the camera to take photos.",
+        "NSMicrophoneUsageDescription": "This app needs access to the microphone to record audio with video.",
+        "NSScreenCaptureUsageDescription": "This app needs screen recording access to capture screenshots."
+      }
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
     },
     "linux": {
       "target": "AppImage"
