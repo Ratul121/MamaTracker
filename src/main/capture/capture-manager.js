@@ -686,7 +686,17 @@ read -n 1
         // For non-macOS platforms, use node-webcam to enumerate devices
         try {
           const NodeWebcam = require('node-webcam');
-          const devices = await NodeWebcam.getListOfAvailableDevices() || [];
+
+          // Wrap list in a promise
+          const getCameras = () => {
+            return new Promise((resolve) => {
+              NodeWebcam.list((list) => {
+                resolve(list);
+              });
+            });
+          };
+
+          const devices = await getCameras() || [];
 
           if (devices.length === 0) {
             return [{
@@ -696,11 +706,24 @@ read -n 1
             }];
           }
 
-          return devices.map((device, index) => ({
-            device_id: device.id || index.toString(),
-            device_name: device.name || `Camera ${index + 1}`,
-            device_type: 'camera'
-          }));
+          return devices.map((device, index) => {
+            // NodeWebcam.list() on Windows might return strings or objects depending on the backend
+            // If it's a string, use it as both ID and Name
+            if (typeof device === 'string') {
+              return {
+                device_id: device,
+                device_name: device,
+                device_type: 'camera'
+              };
+            }
+
+            // If it's an object, try to find id/name
+            return {
+              device_id: device.id || device.name || index.toString(),
+              device_name: device.name || device.label || `Camera ${index + 1}`,
+              device_type: 'camera'
+            };
+          });
         } catch (webcamError) {
           console.error('Failed to enumerate webcams:', webcamError);
           return [{
