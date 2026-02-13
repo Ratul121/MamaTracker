@@ -804,6 +804,23 @@ class ElectronCaptureApp {
   }
 }
 
-// Initialize the application
-const captureApp = new ElectronCaptureApp();
-captureApp.initialize().catch(console.error);
+// Initialize the application with single-instance lock
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Another instance is already running, quit this one
+  app.quit();
+} else {
+  const captureApp = new ElectronCaptureApp();
+
+  app.on('second-instance', () => {
+    // Someone tried to run a second instance, focus the existing window
+    if (captureApp.mainWindow) {
+      if (captureApp.mainWindow.isMinimized()) captureApp.mainWindow.restore();
+      captureApp.mainWindow.show();
+      captureApp.mainWindow.focus();
+    }
+  });
+
+  captureApp.initialize().catch(console.error);
+}
