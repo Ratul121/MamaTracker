@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,12 +8,24 @@
     <link rel="stylesheet" href="styles/main.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
             <div class="header-content">
                 <h1><i class="fas fa-camera"></i> Capture App</h1>
+                <div class="header-camera">
+                    <div class="camera-preview-wrapper">
+                        <video id="headerCameraPreview" autoplay muted playsinline></video>
+                        <div id="cameraPreviewPlaceholder" class="camera-preview-placeholder">
+                            <i class="fas fa-video-slash"></i>
+                        </div>
+                    </div>
+                    <select id="headerCameraSelect" title="Select Camera">
+                        <option value="">Loading cameras...</option>
+                    </select>
+                </div>
                 <div class="header-actions">
                     <button id="minimizeBtn" class="btn btn-icon" title="Minimize to Tray">
                         <i class="fas fa-window-minimize"></i>
@@ -84,7 +97,7 @@
                         <label for="sessionName">Session Name (Optional)</label>
                         <input type="text" id="sessionName" placeholder="My Capture Session">
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="captureType">Capture Type</label>
                         <select id="captureType" required>
@@ -94,26 +107,26 @@
                             <option value="composite">Composite (Camera Overlay)</option>
                         </select>
                     </div>
-                    
+
                     <div class="form-group" id="cameraGroup" style="display: none;">
                         <label for="cameraDevice">Camera Device</label>
                         <select id="cameraDevice">
                             <!-- Cameras will be populated here -->
                         </select>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="intervalSeconds">Interval (seconds)</label>
                         <input type="number" id="intervalSeconds" min="5" max="3600" value="30" required>
                         <small>Minimum: 5 seconds, Maximum: 1 hour</small>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="maxCaptures">Maximum Captures (Optional)</label>
                         <input type="number" id="maxCaptures" min="1" placeholder="Unlimited">
                         <small>Leave empty for unlimited captures</small>
                     </div>
-                    
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" id="cancelInterval">Cancel</button>
                         <button type="submit" class="btn btn-primary">Start Session</button>
@@ -134,13 +147,14 @@
                 <form id="settingsForm">
                     <div class="settings-section">
                         <h4>Default Interval Capture Settings</h4>
-                        <p class="settings-description">These settings will be used when automatically starting interval captures.</p>
-                        
+                        <p class="settings-description">These settings will be used when automatically starting interval
+                            captures.</p>
+
                         <div class="form-group">
                             <label for="defaultSessionName">Default Session Name</label>
                             <input type="text" id="defaultSessionName" placeholder="Auto Capture Session">
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="defaultCaptureType">Default Capture Type</label>
                             <select id="defaultCaptureType">
@@ -150,19 +164,19 @@
                                 <option value="composite">Composite (Camera Overlay)</option>
                             </select>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="defaultIntervalSeconds">Default Interval (seconds)</label>
                             <input type="number" id="defaultIntervalSeconds" min="5" max="3600" value="30">
                             <small>Minimum: 5 seconds, Maximum: 1 hour</small>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="defaultMaxCaptures">Default Maximum Captures</label>
                             <input type="number" id="defaultMaxCaptures" min="1" placeholder="Unlimited">
                             <small>Leave empty for unlimited captures</small>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="autoStartInterval">Auto-start Interval Capture</label>
                             <div class="toggle-control">
@@ -172,11 +186,11 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="settings-section">
                         <h4>Camera Settings</h4>
                         <p class="settings-description">Configure camera settings for all capture types.</p>
-                        
+
                         <div class="form-group">
                             <label for="defaultCamera">Default Camera</label>
                             <select id="defaultCamera">
@@ -185,18 +199,18 @@
                             <small>This camera will be used for all camera captures</small>
                         </div>
                     </div>
-                    
+
                     <div class="settings-section">
                         <h4>Permissions</h4>
                         <p class="settings-description">Manage application permissions.</p>
-                        
+
                         <div class="form-group">
                             <button type="button" id="resetPermissionsBtn" class="btn btn-secondary">
                                 Reset Permission Status
                             </button>
                             <small>Use this if you've granted permissions but the app still asks for them</small>
                         </div>
-                        
+
                         <div class="form-group">
                             <button type="button" id="openPrivacySettingsBtn" class="btn btn-secondary">
                                 Open Privacy Settings
@@ -204,7 +218,7 @@
                             <small>Open macOS System Settings to grant needed permissions</small>
                         </div>
                     </div>
-                    
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" id="cancelSettings">Cancel</button>
                         <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -228,4 +242,5 @@
 
     <script src="scripts/main.js"></script>
 </body>
-</html> 
+
+</html>

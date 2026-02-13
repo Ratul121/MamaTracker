@@ -8,6 +8,7 @@ class CaptureApp {
     this.sessionRefreshInterval = null;
     this.defaultIntervalSettings = null;
     this.autoStartTimeout = null;
+    this.cameraStream = null;
     this.init();
   }
 
@@ -20,7 +21,8 @@ class CaptureApp {
       this.startSessionRefreshTimer();
       this.setupIpcListeners();
       this.updateStatusBar();
-      
+      await this.initHeaderCameraPreview();
+
       // Set a timeout to auto-start interval capture if enabled
       if (this.defaultIntervalSettings && this.defaultIntervalSettings.autoStart) {
         this.scheduleAutoStart();
@@ -35,14 +37,14 @@ class CaptureApp {
     try {
       // Load default save location
       const saveLocation = await window.electronAPI.getSetting('defaultSaveLocation');
-      
+
       // Load default interval settings
       const defaultIntervalSettings = await window.electronAPI.getSetting('defaultIntervalSettings');
-      
+
       if (defaultIntervalSettings) {
         this.defaultIntervalSettings = defaultIntervalSettings;
         console.log('Loaded default interval settings:', this.defaultIntervalSettings);
-        
+
         // Populate settings form if it exists
         this.populateSettingsForm();
       } else {
@@ -52,21 +54,21 @@ class CaptureApp {
       console.error('Failed to load settings:', error);
     }
   }
-  
+
   // Update status bar with current settings
   updateStatusBar() {
     // Update directory status
     this.updateDirectoryStatus();
-    
+
     // Update default interval status
     this.updateDefaultIntervalStatus();
   }
-  
+
   // Update directory status display
   async updateDirectoryStatus() {
     const statusElement = document.getElementById('directoryStatusText');
     if (!statusElement) return;
-    
+
     try {
       const saveLocation = await window.electronAPI.getSetting('defaultSaveLocation');
       if (saveLocation) {
@@ -79,12 +81,12 @@ class CaptureApp {
       statusElement.textContent = 'Error checking directory';
     }
   }
-  
+
   // Update default interval status display
   updateDefaultIntervalStatus() {
     const statusElement = document.getElementById('defaultIntervalStatusText');
     if (!statusElement) return;
-    
+
     if (this.defaultIntervalSettings) {
       const type = this.defaultIntervalSettings.captureType;
       const interval = this.defaultIntervalSettings.intervalSeconds;
@@ -93,23 +95,23 @@ class CaptureApp {
       statusElement.textContent = 'No default interval set';
     }
   }
-  
+
   // Schedule auto-start of interval capture
   scheduleAutoStart() {
     // Clear any existing timeout
     if (this.autoStartTimeout) {
       clearTimeout(this.autoStartTimeout);
     }
-    
+
     // Set 10-second timeout
     this.autoStartTimeout = setTimeout(() => {
       this.startDefaultIntervalCapture();
     }, 10000);
-    
+
     console.log('Auto-start scheduled in 10 seconds');
     this.showToast('Auto-start scheduled in 10 seconds', 'info');
   }
-  
+
   // Start interval capture with default settings
   async startDefaultIntervalCapture() {
     try {
@@ -118,18 +120,18 @@ class CaptureApp {
         this.showToast('No default interval settings configured', 'error');
         return;
       }
-      
+
       // Check if we have a save location
       const saveLocation = await window.electronAPI.getSetting('defaultSaveLocation');
       if (!saveLocation) {
         this.showToast('No save directory set. Please set a directory first.', 'error');
         return;
       }
-      
+
       // Create config from default settings
-      const needsCamera = this.defaultIntervalSettings.captureType === 'camera' 
-                          || this.defaultIntervalSettings.captureType === 'both';
-                          
+      const needsCamera = this.defaultIntervalSettings.captureType === 'camera'
+        || this.defaultIntervalSettings.captureType === 'both';
+
       const config = {
         session_name: this.defaultIntervalSettings.sessionName || 'Auto Capture Session',
         capture_type: this.defaultIntervalSettings.captureType,
@@ -140,12 +142,12 @@ class CaptureApp {
 
       console.log('Starting default interval session with config:', config);
       const sessionId = await window.electronAPI.startIntervalCapture(config);
-      
+
       this.showToast('Auto interval session started successfully!', 'success');
-      
+
       // Refresh active sessions
       await this.loadActiveSessions();
-      
+
     } catch (error) {
       console.error('Default interval session error:', error);
       this.showToast('Failed to start default interval session: ' + error.message, 'error');
@@ -170,7 +172,7 @@ class CaptureApp {
     // Interval form
     document.getElementById('intervalForm').addEventListener('submit', (e) => this.startIntervalSession(e));
     document.getElementById('captureType').addEventListener('change', (e) => this.toggleCameraGroup(e));
-    
+
     // Settings form
     document.getElementById('settingsForm').addEventListener('submit', (e) => this.saveSettings(e));
     document.getElementById('cancelSettings').addEventListener('click', () => {
@@ -186,7 +188,7 @@ class CaptureApp {
         }
       }
     });
-    
+
     // Permission buttons
     document.getElementById('resetPermissionsBtn').addEventListener('click', () => this.resetPermissions());
     document.getElementById('openPrivacySettingsBtn').addEventListener('click', () => this.openPrivacySettings());
@@ -286,32 +288,32 @@ class CaptureApp {
 
   async startIntervalSession(e) {
     e.preventDefault();
-    
+
     try {
       const captureType = document.getElementById('captureType').value;
       const needsCamera = captureType === 'camera' || captureType === 'both';
-      
+
       const config = {
         session_name: document.getElementById('sessionName').value || null,
         capture_type: captureType,
         interval_seconds: parseInt(document.getElementById('intervalSeconds').value),
-        max_captures: document.getElementById('maxCaptures').value ? 
+        max_captures: document.getElementById('maxCaptures').value ?
           parseInt(document.getElementById('maxCaptures').value) : null,
         device_id: needsCamera ? document.getElementById('cameraDevice').value : null
       };
 
       console.log('Starting interval session with config:', config);
       const sessionId = await window.electronAPI.startIntervalCapture(config);
-      
+
       this.closeModal(document.getElementById('intervalModal'));
       this.showToast('Interval session started successfully!', 'success');
-      
+
       // Reset form
       e.target.reset();
-      
+
       // Refresh active sessions
       await this.loadActiveSessions();
-      
+
     } catch (error) {
       console.error('Interval session error:', error);
       this.showToast('Failed to start interval session: ' + error.message, 'error');
@@ -322,14 +324,14 @@ class CaptureApp {
     try {
       this.cameras = await window.electronAPI.enumerateCameras();
       console.log('Loaded cameras:', this.cameras);
-      
+
       // Populate camera selects in both the interval modal and settings
       this.populateCameraSelect('cameraDevice');
       this.populateCameraSelect('defaultCamera');
-      
+
       // If no cameras found, show a diagnostic button
-      if (!this.cameras || this.cameras.length === 0 || 
-          (this.cameras.length === 1 && this.cameras[0].device_id === 'default')) {
+      if (!this.cameras || this.cameras.length === 0 ||
+        (this.cameras.length === 1 && this.cameras[0].device_id === 'default')) {
         console.warn('No cameras found or only default camera available');
         this.showCameraDiagnosticsButton();
       }
@@ -342,15 +344,15 @@ class CaptureApp {
   populateCameraSelect(selectId) {
     const cameraSelect = document.getElementById(selectId);
     if (!cameraSelect) return;
-    
+
     cameraSelect.innerHTML = '';
-    
+
     // Add default option
     const defaultOption = document.createElement('option');
     defaultOption.value = 'default';
     defaultOption.textContent = 'System Default Camera';
     cameraSelect.appendChild(defaultOption);
-    
+
     // Add available cameras
     this.cameras.forEach(camera => {
       const option = document.createElement('option');
@@ -358,7 +360,7 @@ class CaptureApp {
       option.textContent = camera.device_name;
       cameraSelect.appendChild(option);
     });
-    
+
     // If in settings, try to select the current default camera
     if (selectId === 'defaultCamera') {
       window.electronAPI.getSetting('defaultCameraId').then(cameraId => {
@@ -380,7 +382,7 @@ class CaptureApp {
 
   renderActiveSessions() {
     const container = document.getElementById('sessionsContainer');
-    
+
     if (this.activeSessions.length === 0) {
       container.innerHTML = `
         <div class="no-sessions">
@@ -399,10 +401,10 @@ class CaptureApp {
           <p>Status: ${session.status}</p>
         </div>
         <div class="session-controls">
-          ${session.status === 'active' ? 
-            `<button class="btn btn-secondary" onclick="app.pauseSession('${session.session_id}')">Pause</button>` :
-            `<button class="btn btn-primary" onclick="app.resumeSession('${session.session_id}')">Resume</button>`
-          }
+          ${session.status === 'active' ?
+        `<button class="btn btn-secondary" onclick="app.pauseSession('${session.session_id}')">Pause</button>` :
+        `<button class="btn btn-primary" onclick="app.resumeSession('${session.session_id}')">Resume</button>`
+      }
           <button class="btn btn-warning" onclick="app.stopSession('${session.session_id}')">Stop</button>
         </div>
       </div>
@@ -441,7 +443,7 @@ class CaptureApp {
 
   showToast(message, type = 'info') {
     console.log(`${type.toUpperCase()}: ${message}`);
-    
+
     // Create a simple toast notification
     const toast = document.createElement('div');
     toast.style.cssText = `
@@ -459,7 +461,7 @@ class CaptureApp {
       animation: slideIn 0.3s ease;
     `;
     toast.textContent = message;
-    
+
     // Add animation keyframes
     if (!document.getElementById('toast-styles')) {
       const style = document.createElement('style');
@@ -472,9 +474,9 @@ class CaptureApp {
       `;
       document.head.appendChild(style);
     }
-    
+
     document.body.appendChild(toast);
-    
+
     // Remove after 3 seconds
     setTimeout(() => {
       if (toast.parentNode) {
@@ -489,12 +491,12 @@ class CaptureApp {
     if (this.sessionRefreshInterval) {
       clearInterval(this.sessionRefreshInterval);
     }
-    
+
     // Set a new timer to refresh sessions every 2 seconds
     this.sessionRefreshInterval = setInterval(async () => {
       await this.loadActiveSessions();
     }, 2000);
-    
+
     console.log('Session refresh timer started');
   }
 
@@ -512,10 +514,10 @@ class CaptureApp {
     // Listen for session updates from the main process
     window.electronAPI.onSessionUpdate((event, updatedSession) => {
       console.log('Received session update:', updatedSession);
-      
+
       // Update our local sessions array
       this.updateSessionInList(updatedSession);
-      
+
       // Re-render the sessions UI
       this.renderActiveSessions();
     });
@@ -526,7 +528,7 @@ class CaptureApp {
     const index = this.activeSessions.findIndex(
       session => session.session_id === updatedSession.session_id
     );
-    
+
     if (index !== -1) {
       this.activeSessions[index] = updatedSession;
     } else {
@@ -539,67 +541,67 @@ class CaptureApp {
   showSettingsModal() {
     // Populate settings form with current values
     this.populateSettingsForm();
-    
+
     // Show the modal
     const modal = document.getElementById('settingsModal');
     modal.classList.add('active');
   }
-  
+
   // Populate settings form with current values
   populateSettingsForm() {
     if (!this.defaultIntervalSettings) return;
-    
+
     const form = document.getElementById('settingsForm');
     if (!form) return;
-    
+
     // Set form values from saved settings
-    document.getElementById('defaultSessionName').value = 
+    document.getElementById('defaultSessionName').value =
       this.defaultIntervalSettings.sessionName || '';
-      
-    document.getElementById('defaultCaptureType').value = 
+
+    document.getElementById('defaultCaptureType').value =
       this.defaultIntervalSettings.captureType || 'screenshot';
-      
-    document.getElementById('defaultIntervalSeconds').value = 
+
+    document.getElementById('defaultIntervalSeconds').value =
       this.defaultIntervalSettings.intervalSeconds || 30;
-      
-    document.getElementById('defaultMaxCaptures').value = 
+
+    document.getElementById('defaultMaxCaptures').value =
       this.defaultIntervalSettings.maxCaptures || '';
-      
-    document.getElementById('autoStartInterval').checked = 
+
+    document.getElementById('autoStartInterval').checked =
       this.defaultIntervalSettings.autoStart || false;
   }
-  
+
   // Save settings
   async saveSettings(e) {
     e.preventDefault();
-    
+
     try {
       // Get values from form
       const settings = {
         sessionName: document.getElementById('defaultSessionName').value,
         captureType: document.getElementById('defaultCaptureType').value,
         intervalSeconds: parseInt(document.getElementById('defaultIntervalSeconds').value),
-        maxCaptures: document.getElementById('defaultMaxCaptures').value ? 
+        maxCaptures: document.getElementById('defaultMaxCaptures').value ?
           parseInt(document.getElementById('defaultMaxCaptures').value) : null,
         autoStart: document.getElementById('autoStartInterval').checked
       };
-      
+
       // Save to electron store
       await window.electronAPI.setSetting('defaultIntervalSettings', settings);
-      
+
       // Save default camera setting
       const defaultCameraId = document.getElementById('defaultCamera').value;
       await window.electronAPI.setSetting('defaultCameraId', defaultCameraId);
-      
+
       // Update local settings
       this.defaultIntervalSettings = settings;
-      
+
       // Close modal
       this.closeModal(document.getElementById('settingsModal'));
-      
+
       // Update status bar
       this.updateDefaultIntervalStatus();
-      
+
       // Schedule auto-start if enabled
       if (settings.autoStart) {
         this.scheduleAutoStart();
@@ -607,7 +609,7 @@ class CaptureApp {
         clearTimeout(this.autoStartTimeout);
         this.autoStartTimeout = null;
       }
-      
+
       this.showToast('Settings saved successfully!', 'success');
     } catch (error) {
       console.error('Failed to save settings:', error);
@@ -624,7 +626,7 @@ class CaptureApp {
       this.showToast('Failed to reset permissions: ' + error.message, 'error');
     }
   }
-  
+
   // Open privacy settings
   async openPrivacySettings() {
     try {
@@ -638,7 +640,7 @@ class CaptureApp {
   showCameraDiagnosticsButton() {
     // Add a button to the camera device dropdown area to help diagnose issues
     const cameraDeviceContainer = document.getElementById('cameraDevice').parentElement;
-    
+
     // Create diagnostic button if it doesn't exist
     if (!document.getElementById('camera-diagnostics-btn')) {
       const diagnosticBtn = document.createElement('button');
@@ -646,11 +648,11 @@ class CaptureApp {
       diagnosticBtn.className = 'btn btn-secondary mt-2';
       diagnosticBtn.textContent = 'Camera Issues? Run Diagnostics';
       diagnosticBtn.addEventListener('click', () => this.runDiagnostics());
-      
+
       cameraDeviceContainer.appendChild(diagnosticBtn);
     }
   }
-  
+
   async runDiagnostics() {
     try {
       console.log('Running diagnostics...');
@@ -660,29 +662,121 @@ class CaptureApp {
       alert('Error running diagnostics: ' + error.message);
     }
   }
+
+  // ============ Header Camera Preview ============
+
+  async initHeaderCameraPreview() {
+    const select = document.getElementById('headerCameraSelect');
+    if (!select) return;
+
+    // Populate using browser's mediaDevices API (works in renderer)
+    try {
+      // First request permission so labels are populated
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      tempStream.getTracks().forEach(t => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+      select.innerHTML = '';
+
+      if (videoDevices.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No cameras found';
+        select.appendChild(opt);
+        return;
+      }
+
+      videoDevices.forEach((device, idx) => {
+        const opt = document.createElement('option');
+        opt.value = device.deviceId;
+        opt.textContent = device.label || `Camera ${idx + 1}`;
+        select.appendChild(opt);
+      });
+
+      // Restore saved selection
+      const savedCameraId = await window.electronAPI.getSetting('headerCameraDeviceId');
+      if (savedCameraId && videoDevices.some(d => d.deviceId === savedCameraId)) {
+        select.value = savedCameraId;
+      }
+
+      // Start preview with the selected camera
+      await this.startCameraPreview(select.value);
+
+      // Listen for changes
+      select.addEventListener('change', async () => {
+        await window.electronAPI.setSetting('headerCameraDeviceId', select.value);
+        await this.startCameraPreview(select.value);
+      });
+    } catch (err) {
+      console.error('Failed to initialize header camera preview:', err);
+      select.innerHTML = '<option value="">Camera unavailable</option>';
+    }
+  }
+
+  async startCameraPreview(deviceId) {
+    const video = document.getElementById('headerCameraPreview');
+    const placeholder = document.getElementById('cameraPreviewPlaceholder');
+    if (!video) return;
+
+    // Stop existing stream
+    this.stopCameraPreview();
+
+    if (!deviceId) {
+      if (placeholder) placeholder.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      const constraints = {
+        video: {
+          deviceId: { exact: deviceId },
+          width: { ideal: 160 },
+          height: { ideal: 120 }
+        }
+      };
+
+      this.cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = this.cameraStream;
+      if (placeholder) placeholder.classList.add('hidden');
+    } catch (err) {
+      console.error('Failed to start camera preview:', err);
+      if (placeholder) placeholder.classList.remove('hidden');
+    }
+  }
+
+  stopCameraPreview() {
+    if (this.cameraStream) {
+      this.cameraStream.getTracks().forEach(track => track.stop());
+      this.cameraStream = null;
+    }
+    const video = document.getElementById('headerCameraPreview');
+    if (video) video.srcObject = null;
+  }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM loaded, initializing Capture App...');
-  
+
   // Check if electronAPI is available
   if (typeof window.electronAPI === 'undefined') {
     console.error('electronAPI not available - app may not work correctly');
     return;
   }
-  
+
   window.app = new CaptureApp();
   console.log('Capture App initialized successfully');
-  
+
   // Clean up on page unload
   window.addEventListener('beforeunload', () => {
     if (window.app) {
       window.app.stopSessionRefreshTimer();
+      window.app.stopCameraPreview();
       window.electronAPI.removeAllListeners('session-update');
       window.electronAPI.removeAllListeners('capture-complete');
       window.electronAPI.removeAllListeners('error');
     }
   });
 });
- 

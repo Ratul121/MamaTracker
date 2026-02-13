@@ -1198,35 +1198,21 @@ read -n 1
           throw new Error(`imagesnap error: ${error.message}`);
         }
       } else {
-        // Use node-webcam for other platforms
-        // Create options for node-webcam
-        const webcamOptions = {
-          width: 1280,
-          height: 720,
-          quality: 100,
-          output: 'jpeg',
-          saveShots: true,
-          device: deviceId || false,
-          callbackReturn: 'location',
-          verbose: true
-        };
+        // Use CommandCam.exe directly on Windows to handle paths with spaces correctly
+        // node-webcam's command builder doesn't quote paths, breaking on spaces
+        const commandCamPath = path.join(
+          path.dirname(require.resolve('node-webcam')),
+          'src', 'bindings', 'CommandCam', 'CommandCam.exe'
+        );
 
-        // Create webcam instance
-        const NodeWebcam = require('node-webcam');
-        const Webcam = NodeWebcam.create(webcamOptions);
+        let cmd = `"${commandCamPath}"`;
+        if (deviceId && deviceId !== 'default') {
+          cmd += ` /devnum ${deviceId}`;
+        }
+        cmd += ` /filename "${filepath}"`;
 
-        // Capture photo
-        await new Promise((resolve, reject) => {
-          Webcam.capture(filepath, (err, data) => {
-            if (err) {
-              console.error('Webcam capture error:', err);
-              reject(err);
-            } else {
-              console.log(`Webcam capture success: ${data}`);
-              resolve(data);
-            }
-          });
-        });
+        console.log(`Executing CommandCam: ${cmd}`);
+        await execAsync(cmd);
 
         // Verify file exists
         try {
@@ -1427,32 +1413,20 @@ read -n 1
           throw new Error(`imagesnap error: ${error.message}`);
         }
       } else {
-        // Use node-webcam for other platforms
-        const webcamOptions = {
-          width: 640,
-          height: 480,
-          quality: 100,
-          output: 'jpeg',
-          saveShots: true,
-          device: deviceId || false,
-          callbackReturn: 'location',
-          verbose: false
-        };
+        // Use CommandCam.exe directly on Windows to handle paths with spaces correctly
+        const commandCamPath = path.join(
+          path.dirname(require.resolve('node-webcam')),
+          'src', 'bindings', 'CommandCam', 'CommandCam.exe'
+        );
 
-        const NodeWebcam = require('node-webcam');
-        const Webcam = NodeWebcam.create(webcamOptions);
+        let cmd = `"${commandCamPath}"`;
+        if (deviceId && deviceId !== 'default') {
+          cmd += ` /devnum ${deviceId}`;
+        }
+        cmd += ` /filename "${tempCameraPath}"`;
 
-        await new Promise((resolve, reject) => {
-          Webcam.capture(tempCameraPath, (err, data) => {
-            if (err) {
-              console.error('Webcam capture error:', err);
-              reject(err);
-            } else {
-              console.log(`Webcam capture success: ${data}`);
-              resolve(data);
-            }
-          });
-        });
+        console.log(`Executing CommandCam for composite: ${cmd}`);
+        await execAsync(cmd);
 
         // Verify file exists
         try {
