@@ -21,7 +21,6 @@ class CaptureApp {
       this.startSessionRefreshTimer();
       this.setupIpcListeners();
       this.updateStatusBar();
-      await this.initHeaderCameraPreview();
 
       // Set a timeout to auto-start interval capture if enabled
       if (this.defaultIntervalSettings && this.defaultIntervalSettings.autoStart) {
@@ -275,6 +274,11 @@ class CaptureApp {
 
   closeModal(modal) {
     modal.classList.remove('active');
+
+    // Stop camera preview when closing settings modal
+    if (modal.id === 'settingsModal') {
+      this.stopCameraPreview();
+    }
   }
 
   toggleCameraGroup(e) {
@@ -545,6 +549,9 @@ class CaptureApp {
     // Show the modal
     const modal = document.getElementById('settingsModal');
     modal.classList.add('active');
+
+    // Start camera preview in settings
+    this.startSettingsCameraPreview();
   }
 
   // Populate settings form with current values
@@ -663,67 +670,75 @@ class CaptureApp {
     }
   }
 
-  // ============ Header Camera Preview ============
+  // ============ Settings Camera Preview ============
 
-  async initHeaderCameraPreview() {
-    const select = document.getElementById('headerCameraSelect');
-    if (!select) return;
+  async startSettingsCameraPreview() {
+    const select = document.getElementById('defaultCamera');
+    const video = document.getElementById('settingsCameraPreview');
+    const placeholder = document.getElementById('settingsCameraPlaceholder');
+    if (!select || !video) return;
 
-    // Populate using browser's mediaDevices API (works in renderer)
+    // Populate using browser's mediaDevices API
     try {
-      // First request permission so labels are populated
+      // Request permission so labels are populated
       const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
       tempStream.getTracks().forEach(t => t.stop());
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-      select.innerHTML = '';
+      // Build a mapping for the select options
+      this.browserCameraDevices = videoDevices;
 
-      if (videoDevices.length === 0) {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'No cameras found';
-        select.appendChild(opt);
-        return;
+      // Start preview with whatever browser device is available
+      if (videoDevices.length > 0) {
+        // Get the saved default camera to match, or use first
+        const savedCameraId = await window.electronAPI.getSetting('defaultCameraId');
+
+        // Find the matching browser device
+        let previewDeviceId = videoDevices[0].deviceId;
+        if (savedCameraId) {
+          // Try to match by index (the backend uses 1-based index)
+          const idx = parseInt(savedCameraId) - 1;
+          if (idx >= 0 && idx < videoDevices.length) {
+            previewDeviceId = videoDevices[idx].deviceId;
+          }
+        }
+
+        await this.startCameraStream(previewDeviceId);
+      } else {
+        if (placeholder) placeholder.classList.remove('hidden');
       }
-
-      videoDevices.forEach((device, idx) => {
-        const opt = document.createElement('option');
-        opt.value = device.deviceId;
-        opt.textContent = device.label || `Camera ${idx + 1}`;
-        select.appendChild(opt);
-      });
-
-      // Restore saved selection
-      const savedCameraId = await window.electronAPI.getSetting('headerCameraDeviceId');
-      if (savedCameraId && videoDevices.some(d => d.deviceId === savedCameraId)) {
-        select.value = savedCameraId;
-      }
-
-      // Start preview with the selected camera
-      await this.startCameraPreview(select.value);
-
-      // Listen for changes
-      select.addEventListener('change', async () => {
-        await window.electronAPI.setSetting('headerCameraDeviceId', select.value);
-        await this.startCameraPreview(select.value);
-      });
     } catch (err) {
-      console.error('Failed to initialize header camera preview:', err);
-      select.innerHTML = '<option value="">Camera unavailable</option>';
+      console.error('Failed to start settings camera preview:', err);
+      if (placeholder) placeholder.classList.remove('hidden');
+    }
+
+    // Listen for camera select changes to update preview
+    if (!select._previewListenerAdded) {
+      select.addEventListener('change', async () => {
+        // Map the selected backend device_id (1-based) to browser device
+        const selectedId = select.value;
+        if (this.browserCameraDevices && this.browserCameraDevices.length > 0) {
+          const idx = parseInt(selectedId) - 1;
+          if (idx >= 0 && idx < this.browserCameraDevices.length) {
+            await this.startCameraStream(this.browserCameraDevices[idx].deviceId);
+          }
+        }
+      });
+      select._previewListenerAdded = true;
     }
   }
 
-  async startCameraPreview(deviceId) {
-    const video = document.getElementById('headerCameraPreview');
-    const placeholder = document.getElementById('cameraPreviewPlaceholder');
+  async startCameraStream(browserDeviceId) {
+    const video = document.getElementById('settingsCameraPreview');
+    const placeholder = document.getElementById('settingsCameraPlaceholder');
     if (!video) return;
 
     // Stop existing stream
     this.stopCameraPreview();
 
-    if (!deviceId) {
+    if (!browserDeviceId) {
       if (placeholder) placeholder.classList.remove('hidden');
       return;
     }
@@ -731,9 +746,9 @@ class CaptureApp {
     try {
       const constraints = {
         video: {
-          deviceId: { exact: deviceId },
-          width: { ideal: 160 },
-          height: { ideal: 120 }
+          deviceId: { exact: browserDeviceId },
+          width: { ideal: 320 },
+          height: { ideal: 240 }
         }
       };
 
@@ -741,7 +756,7 @@ class CaptureApp {
       video.srcObject = this.cameraStream;
       if (placeholder) placeholder.classList.add('hidden');
     } catch (err) {
-      console.error('Failed to start camera preview:', err);
+      console.error('Failed to start camera stream:', err);
       if (placeholder) placeholder.classList.remove('hidden');
     }
   }
@@ -751,7 +766,7 @@ class CaptureApp {
       this.cameraStream.getTracks().forEach(track => track.stop());
       this.cameraStream = null;
     }
-    const video = document.getElementById('headerCameraPreview');
+    const video = document.getElementById('settingsCameraPreview');
     if (video) video.srcObject = null;
   }
 }

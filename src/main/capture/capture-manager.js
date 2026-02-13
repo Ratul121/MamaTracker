@@ -708,18 +708,18 @@ read -n 1
 
           return devices.map((device, index) => {
             // NodeWebcam.list() on Windows might return strings or objects depending on the backend
-            // If it's a string, use it as both ID and Name
+            // CommandCam.exe uses 1-based device numbers, so use (index + 1)
             if (typeof device === 'string') {
               return {
-                device_id: device,
-                device_name: device,
+                device_id: (index + 1).toString(),
+                device_name: device || `Camera ${index + 1}`,
                 device_type: 'camera'
               };
             }
 
             // If it's an object, try to find id/name
             return {
-              device_id: device.id || device.name || index.toString(),
+              device_id: (index + 1).toString(),
               device_name: device.name || device.label || `Camera ${index + 1}`,
               device_type: 'camera'
             };
@@ -1205,14 +1205,22 @@ read -n 1
           'src', 'bindings', 'CommandCam', 'CommandCam.exe'
         );
 
+        // CommandCam uses 1-based device numbers
         let cmd = `"${commandCamPath}"`;
-        if (deviceId && deviceId !== 'default') {
+        if (deviceId && deviceId !== 'default' && deviceId !== '0') {
           cmd += ` /devnum ${deviceId}`;
         }
         cmd += ` /filename "${filepath}"`;
+        // Add delay for camera warmup
+        cmd += ` /delay 2000`;
 
         console.log(`Executing CommandCam: ${cmd}`);
-        await execAsync(cmd);
+        try {
+          await execAsync(cmd, { timeout: 15000 });
+        } catch (execErr) {
+          console.error('CommandCam execution error:', execErr.message);
+          throw new Error(`Camera capture failed: ${execErr.message}`);
+        }
 
         // Verify file exists
         try {
@@ -1420,13 +1428,19 @@ read -n 1
         );
 
         let cmd = `"${commandCamPath}"`;
-        if (deviceId && deviceId !== 'default') {
+        if (deviceId && deviceId !== 'default' && deviceId !== '0') {
           cmd += ` /devnum ${deviceId}`;
         }
         cmd += ` /filename "${tempCameraPath}"`;
+        cmd += ` /delay 2000`;
 
         console.log(`Executing CommandCam for composite: ${cmd}`);
-        await execAsync(cmd);
+        try {
+          await execAsync(cmd, { timeout: 15000 });
+        } catch (execErr) {
+          console.error('CommandCam composite execution error:', execErr.message);
+          throw new Error(`Camera capture for composite failed: ${execErr.message}`);
+        }
 
         // Verify file exists
         try {
